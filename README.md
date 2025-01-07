@@ -47,19 +47,13 @@ chip:
     - id: "gpio17"
       pin: 17
       value: 1
-      mode: 1
-      pull: 0
+      direction: 1
+      edge: 0
     - id: "gpio18"
       pin: 18
       value: 0
-      mode: 0
-      pull: 1
-
-analog-pins:
-  - id: "adc0"
-    pin: 0
-    value: 0
-    mode: 0
+      direction: 0
+      edge: 1
 ```
 
 2. Initialize and use the library in your code:
@@ -106,7 +100,6 @@ func main() {
 |-----------|---------|-----------------------------------------------------|
 | Config     | Config  | Nested Config structure containing SSH credentials  |
 | Chip       | Chip    | Configuration for Raspberry Pi Chip                 |
-| AnalogPins | []Analog| Slice of Analog Pin configurations                  |
 
 ### Config Struct
 
@@ -128,13 +121,10 @@ func main() {
 
 | Field     | Type    | Description                      |
 |-----------|---------|----------------------------------|
-| Id        | string  | Pin ID                           |
 | Pin       | int     | GPIO Pin Number                  |
-| Value     | int     | Current Pin Value                |
-| Mode      | int     | Pin Mode (Input/Output)          |
-| Pull      | int     | Pin Pull configuration           |
+| PinDefault| PinDefault  | Current Pin Value                |
 
-### Analog Struct
+### PinDefault
 
 | Field     | Type    | Description                      |
 |-----------|---------|----------------------------------|
@@ -143,12 +133,3 @@ func main() {
 | Value     | int     | Current Pin Value                |
 | Mode      | int     | Pin Mode (Input/Output)           |
 | Pull      | int     | Pin Pull configuration           |
-
-
----
-
-## Example
-
-Check the [example]() directory for a sample implementation using the library.
-
----
