@@ -15,9 +15,3 @@ chip:
       value: 0
       direction: 0
       edge: 1
-# analog-pins:
-#   - id: "adc0"
-#     pin: 0
-#     value: 0
-#     mode: 0
-#     pull: 1

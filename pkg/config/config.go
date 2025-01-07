@@ -41,7 +41,6 @@ type Config struct {
 
 type Chip struct {
 	DigitalPins []Digital `yaml:"digital-pins" validate:"required,dive"`
-	AnalogPins  []Analog  `yaml:"analog-pins" validate:"dive"`
 }
 
 type Digital struct {
@@ -66,11 +65,6 @@ func (c *DeviceConfig) Validate() error {
 	for _, pin := range c.Chip.DigitalPins {
 		if err := validate.Struct(pin); err != nil {
 			return fmt.Errorf("validation failed for digital pin %s: %v", pin.Id, err)
-		}
-	}
-	for _, pin := range c.Chip.AnalogPins {
-		if err := validate.Struct(pin); err != nil {
-			return fmt.Errorf("validation failed for analog pin %s: %v", pin.Id, err)
 		}
 	}
 	if err := validate.Struct(c.Config); err != nil {

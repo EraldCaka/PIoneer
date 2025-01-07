@@ -1,20 +1,20 @@
 package pioneer
 
 import (
-	"bytes"
 	"fmt"
 	"log"
 	"os"
-	"strconv"
 
 	"github.com/EraldCaka/PIoneer/pkg/config"
+	"github.com/EraldCaka/PIoneer/pkg/handlers/digital"
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	*config.DeviceConfig
+	config.DeviceConfig
 	sshClient *ssh.Client
+	digital   config.Pin
 }
 
 func New(file *os.File) (config.Device, error) {
@@ -30,7 +30,7 @@ func New(file *os.File) (config.Device, error) {
 	}
 	log.Printf("Config: %+v\n", config)
 	return &Config{
-		DeviceConfig: &config,
+		DeviceConfig: config,
 	}, nil
 }
 
@@ -46,15 +46,14 @@ func (c *Config) Start() error {
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
-
 	address := fmt.Sprintf("%s:%s", c.Config.Url, c.Config.Port)
 
 	client, err := ssh.Dial("tcp", address, sshConfig)
 	if err != nil {
 		return fmt.Errorf("failed to establish SSH connection to %s: %v", c.Name(), err)
 	}
-
 	c.sshClient = client
+	c.digital = digital.New(c.Chip.DigitalPins, client)
 	fmt.Printf("Connected to device %s successfully.\n", c.Name())
 	return nil
 }
@@ -74,68 +73,18 @@ func (c *Config) Stop() error {
 	return nil
 }
 
-func (c *Config) Read(pin int, isAnalog bool) (int, error) {
-	if c.sshClient == nil {
-		return 0, fmt.Errorf("no active SSH connection")
-	}
-
-	command := ""
-	if isAnalog {
-		command = fmt.Sprintf("cat /sys/class/gpio/analog%d/value", pin)
-	} else {
-		command = fmt.Sprintf("cat /sys/class/gpio/gpio%d/value", pin)
-	}
-
-	session, err := c.sshClient.NewSession()
+func (c *Config) Read(pin int) (int, error) {
+	value, err := c.digital.Read(pin)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create SSH session: %v", err)
+		return 0, fmt.Errorf("failed to read pin: %v, from the device: %v", pin, err)
 	}
-	defer session.Close()
-
-	var stdout, stderr bytes.Buffer
-	session.Stdout = &stdout
-	session.Stderr = &stderr
-
-	if err := session.Run(command); err != nil {
-		return 0, fmt.Errorf("failed to read pin %d: %v\n%s", pin, err, stderr.String())
-	}
-
-	value, err := strconv.Atoi(stdout.String())
-	if err != nil {
-		return 0, fmt.Errorf("invalid pin value format: %v", err)
-	}
-
 	return value, nil
 }
 
-func (c *Config) Write(pin int, value int, isAnalog bool) error {
-	if c.sshClient == nil {
-		return fmt.Errorf("no active SSH connection")
-	}
-
-	if value < 0 || (isAnalog && value > 1023) || (!isAnalog && value > 1) {
-		return fmt.Errorf("invalid pin value: %d", value)
-	}
-
-	command := ""
-	if isAnalog {
-		command = fmt.Sprintf("echo %d > /sys/class/gpio/analog%d/value", value, pin)
-	} else {
-		command = fmt.Sprintf("echo %d > /sys/class/gpio/gpio%d/value", value, pin)
-	}
-
-	session, err := c.sshClient.NewSession()
+func (c *Config) Write(pin int, value int) error {
+	err := c.digital.Write(pin, value)
 	if err != nil {
-		return fmt.Errorf("failed to create SSH session: %v", err)
+		return fmt.Errorf("failed to write to pin: %v, from the device: %v", pin, err)
 	}
-	defer session.Close()
-
-	var stderr bytes.Buffer
-	session.Stderr = &stderr
-
-	if err := session.Run(command); err != nil {
-		return fmt.Errorf("failed to write pin %d: %v\n%s", pin, err, stderr.String())
-	}
-
 	return nil
 }
