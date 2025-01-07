@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"os"
 
@@ -15,15 +14,32 @@ func main() {
 	}
 	defer configFile.Close()
 
-	deviceConfig, err := pioneer.New(configFile)
+	_, err = pioneer.New(configFile)
 	if err != nil {
 		log.Fatalf("failed to initialize device config: %v", err)
 	}
 
-	if err := deviceConfig.Start(); err != nil {
-		log.Fatalf("failed to start the device: %v", err)
-	}
-	defer deviceConfig.Stop()
+	// if err := pioneer.Start(); err != nil {
+	// 	log.Fatalf("failed to start the device: %v", err)
+	// }
+	// defer pioneer.Stop()
 
-	fmt.Println("GPIO pin set successfully!")
+	// value, err := pioneer.Read(17, false)
+	// if err != nil {
+	// 	log.Fatalf("failed to read from the device: %v", err)
+	// }
+	// fmt.Println("GPIO pin read successfully! Value: ", value)
+
+	// if err := pioneer.Write(17, 1, false); err != nil {
+	// 	log.Fatalf("failed to write to the device: %v", err)
+	// }
+
+	// fmt.Println("GPIO pin written successfully!")
+
+	// value, err = pioneer.Read(17, false)
+	// if err != nil {
+	// 	log.Fatalf("failed to read from the device: %v", err)
+	// }
+	// fmt.Println("GPIO pin read successfully! Value: ", value)
+
 }

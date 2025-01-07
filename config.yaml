@@ -8,16 +8,16 @@ chip:
     - id: "gpio17"
       pin: 17
       value: 1
-      mode: 1
-      pull: 0
+      direction: 1
+      edge: 0
     - id: "gpio18"
       pin: 18
       value: 0
-      mode: 0
-      pull: 1
-analog-pins:
-  - id: "adc0"
-    pin: 0
-    value: 0
-    mode: 0
-    pull: 1
+      direction: 0
+      edge: 1
+# analog-pins:
+#   - id: "adc0"
+#     pin: 0
+#     value: 0
+#     mode: 0
+#     pull: 1

@@ -24,7 +24,11 @@ func New(file *os.File) (config.Device, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse the config file: %v", err)
 	}
-	log.Println(config)
+
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %v", err)
+	}
+	log.Printf("Config: %+v\n", config)
 	return &Config{
 		DeviceConfig: &config,
 	}, nil
