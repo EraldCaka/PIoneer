@@ -1,6 +1,7 @@
 # Go Raspberry Pi GPIO Library
 
 This Go library provides an abstraction for accessing Raspberry Pi GPIO pins via SSH. It supports both **Digital** and **Analog** pins, providing flexible configurations and interaction with your Raspberry Pi devices.
+(still underdevelopment for the pin writes and reads)
 
 ---
 
