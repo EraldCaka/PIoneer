@@ -1,0 +1,177 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0a0f1a"/>
+      <stop offset="100%" style="stop-color:#0d1f3c"/>
+    </linearGradient>
+    <linearGradient id="piGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00d4ff"/>
+      <stop offset="100%" style="stop-color:#0080ff"/>
+    </linearGradient>
+    <linearGradient id="circuitGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00ff88;stop-opacity:0.9"/>
+      <stop offset="100%" style="stop-color:#00cc66;stop-opacity:0.6"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="softglow">
+      <feGaussianBlur stdDeviation="8" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <radialGradient id="centerGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#00d4ff;stop-opacity:0.15"/>
+      <stop offset="100%" style="stop-color:#00d4ff;stop-opacity:0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="80" fill="url(#bg)"/>
+
+  <!-- Subtle grid pattern -->
+  <g opacity="0.06" stroke="#00d4ff" stroke-width="0.5">
+    <line x1="0" y1="64" x2="512" y2="64"/>
+    <line x1="0" y1="128" x2="512" y2="128"/>
+    <line x1="0" y1="192" x2="512" y2="192"/>
+    <line x1="0" y1="256" x2="512" y2="256"/>
+    <line x1="0" y1="320" x2="512" y2="320"/>
+    <line x1="0" y1="384" x2="512" y2="384"/>
+    <line x1="0" y1="448" x2="512" y2="448"/>
+    <line x1="64" y1="0" x2="64" y2="512"/>
+    <line x1="128" y1="0" x2="128" y2="512"/>
+    <line x1="192" y1="0" x2="192" y2="512"/>
+    <line x1="256" y1="0" x2="256" y2="512"/>
+    <line x1="320" y1="0" x2="320" y2="512"/>
+    <line x1="384" y1="0" x2="384" y2="512"/>
+    <line x1="448" y1="0" x2="448" y2="512"/>
+  </g>
+
+  <!-- Center ambient glow -->
+  <circle cx="256" cy="256" r="200" fill="url(#centerGlow)"/>
+
+  <!-- Circuit traces - horizontal -->
+  <g filter="url(#glow)" stroke="url(#circuitGrad)" stroke-width="2" fill="none" opacity="0.7">
+    <polyline points="60,200 110,200 130,180 180,180"/>
+    <polyline points="60,312 110,312 130,332 180,332"/>
+    <polyline points="452,200 402,200 382,180 332,180"/>
+    <polyline points="452,312 402,312 382,332 332,332"/>
+    <polyline points="60,256 100,256"/>
+    <polyline points="452,256 412,256"/>
+  </g>
+
+  <!-- Circuit nodes -->
+  <g filter="url(#glow)" fill="#00ff88" opacity="0.9">
+    <circle cx="110" cy="200" r="4"/>
+    <circle cx="110" cy="312" r="4"/>
+    <circle cx="402" cy="200" r="4"/>
+    <circle cx="402" cy="312" r="4"/>
+    <circle cx="100" cy="256" r="4"/>
+    <circle cx="412" cy="256" r="4"/>
+    <circle cx="180" cy="180" r="3"/>
+    <circle cx="180" cy="332" r="3"/>
+    <circle cx="332" cy="180" r="3"/>
+    <circle cx="332" cy="332" r="3"/>
+  </g>
+
+  <!-- Raspberry Pi board outline -->
+  <rect x="160" y="160" width="192" height="192" rx="12" fill="#1a2744" stroke="#00d4ff" stroke-width="2" opacity="0.9"/>
+
+  <!-- Pi board inner detail -->
+  <rect x="172" y="172" width="168" height="168" rx="8" fill="none" stroke="#00d4ff" stroke-width="0.5" opacity="0.3"/>
+
+  <!-- GPIO pins - left side -->
+  <g fill="#00d4ff" opacity="0.8">
+    <rect x="148" y="188" width="14" height="6" rx="1"/>
+    <rect x="148" y="200" width="14" height="6" rx="1"/>
+    <rect x="148" y="212" width="14" height="6" rx="1"/>
+    <rect x="148" y="224" width="14" height="6" rx="1"/>
+    <rect x="148" y="236" width="14" height="6" rx="1"/>
+    <rect x="148" y="248" width="14" height="6" rx="1"/>
+    <rect x="148" y="260" width="14" height="6" rx="1"/>
+    <rect x="148" y="272" width="14" height="6" rx="1"/>
+    <rect x="148" y="284" width="14" height="6" rx="1"/>
+    <rect x="148" y="296" width="14" height="6" rx="1"/>
+    <rect x="148" y="308" width="14" height="6" rx="1"/>
+  </g>
+
+  <!-- GPIO pins - right side -->
+  <g fill="#00d4ff" opacity="0.8">
+    <rect x="350" y="188" width="14" height="6" rx="1"/>
+    <rect x="350" y="200" width="14" height="6" rx="1"/>
+    <rect x="350" y="212" width="14" height="6" rx="1"/>
+    <rect x="350" y="224" width="14" height="6" rx="1"/>
+    <rect x="350" y="236" width="14" height="6" rx="1"/>
+    <rect x="350" y="248" width="14" height="6" rx="1"/>
+    <rect x="350" y="260" width="14" height="6" rx="1"/>
+    <rect x="350" y="272" width="14" height="6" rx="1"/>
+    <rect x="350" y="284" width="14" height="6" rx="1"/>
+    <rect x="350" y="296" width="14" height="6" rx="1"/>
+    <rect x="350" y="308" width="14" height="6" rx="1"/>
+  </g>
+
+  <!-- CPU chip in center -->
+  <rect x="210" y="210" width="92" height="92" rx="8" fill="#0d1f3c" stroke="url(#piGrad)" stroke-width="2"/>
+  <rect x="220" y="220" width="72" height="72" rx="4" fill="#091629" stroke="#00d4ff" stroke-width="0.5" opacity="0.5"/>
+
+  <!-- Pi letter mark inside CPU -->
+  <g filter="url(#softglow)">
+    <!-- π symbol -->
+    <line x1="233" y1="242" x2="279" y2="242" stroke="url(#piGrad)" stroke-width="3.5" stroke-linecap="round"/>
+    <line x1="242" y1="242" x2="242" y2="272" stroke="url(#piGrad)" stroke-width="3.5" stroke-linecap="round"/>
+    <line x1="270" y1="242" x2="268" y2="272" stroke="url(#piGrad)" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="0"/>
+  </g>
+
+  <!-- CPU pin marks -->
+  <g stroke="#00d4ff" stroke-width="1" opacity="0.5">
+    <line x1="220" y1="225" x2="220" y2="225"/>
+    <line x1="228" y1="210" x2="228" y2="218"/>
+    <line x1="244" y1="210" x2="244" y2="218"/>
+    <line x1="260" y1="210" x2="260" y2="218"/>
+    <line x1="276" y1="210" x2="276" y2="218"/>
+    <line x1="228" y1="294" x2="228" y2="302"/>
+    <line x1="244" y1="294" x2="244" y2="302"/>
+    <line x1="260" y1="294" x2="260" y2="302"/>
+    <line x1="276" y1="294" x2="276" y2="302"/>
+    <line x1="210" y1="228" x2="218" y2="228"/>
+    <line x1="210" y1="244" x2="218" y2="244"/>
+    <line x1="210" y1="260" x2="218" y2="260"/>
+    <line x1="210" y1="276" x2="218" y2="276"/>
+    <line x1="294" y1="228" x2="302" y2="228"/>
+    <line x1="294" y1="244" x2="302" y2="244"/>
+    <line x1="294" y1="260" x2="302" y2="260"/>
+    <line x1="294" y1="276" x2="302" y2="276"/>
+  </g>
+
+  <!-- Signal pulse wave - top -->
+  <g filter="url(#glow)" stroke="#00ff88" stroke-width="2.5" fill="none" opacity="0.85">
+    <polyline points="185,140 200,140 200,125 215,125 215,140 230,140 230,125 245,125 245,140 260,140 260,125 275,125 275,140 290,140 290,125 305,125 305,140 320,140"/>
+  </g>
+
+  <!-- SSH connection arrow - animated feel via dashes -->
+  <g opacity="0.5">
+    <line x1="60" y1="256" x2="148" y2="256" stroke="#00d4ff" stroke-width="1.5" stroke-dasharray="6,4"/>
+    <line x1="364" y1="256" x2="452" y2="256" stroke="#00d4ff" stroke-width="1.5" stroke-dasharray="6,4"/>
+  </g>
+
+  <!-- MQTT dots orbiting -->
+  <g filter="url(#glow)">
+    <circle cx="256" cy="108" r="7" fill="#ff6b35" opacity="0.9"/>
+    <circle cx="380" cy="160" r="5" fill="#ff6b35" opacity="0.7"/>
+    <circle cx="132" cy="160" r="5" fill="#ff6b35" opacity="0.7"/>
+  </g>
+
+  <!-- Corner decorations -->
+  <g stroke="#00d4ff" stroke-width="1.5" fill="none" opacity="0.4">
+    <path d="M 30 30 L 30 60 L 60 60"/>
+    <path d="M 482 30 L 482 60 L 452 60"/>
+    <path d="M 30 482 L 30 452 L 60 452"/>
+    <path d="M 482 482 L 482 452 L 452 452"/>
+  </g>
+</svg>
