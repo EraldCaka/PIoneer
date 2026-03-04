@@ -70,7 +70,7 @@ func main() {
 ```yaml
 config:
   device-name: "pi"
-  url: "192.168.1.98"
+  url: "raspberry.local"
   port: "22"
   auth-method: "password"   # or "key"
   password: "yourpassword"
