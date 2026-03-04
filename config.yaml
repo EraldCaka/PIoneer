@@ -1,9 +1,9 @@
 config:
   device-name: "pi"
-  url: "192.168.1.98"
+  url: "raspberry.local"
   port: "22"
   auth-method: "password"
-  password: "alesio1234"
+  password: "test"
   # For production use key auth instead:
   # auth-method: "key"
   # ssh-key-path: "/home/youruser/.ssh/id_rsa"

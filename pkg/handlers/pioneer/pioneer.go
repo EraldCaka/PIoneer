@@ -3,8 +3,6 @@ package pioneer
 import (
 	"fmt"
 	"os"
-	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -15,6 +13,7 @@ import (
 
 type Device struct {
 	cfg        *config.DeviceConfig
+	exec       executor
 	pool       *sshPool
 	watch      *watcher
 	mqtt       *mqttBridge
@@ -40,23 +39,14 @@ func New(file *os.File) (config.Device, error) {
 		return nil, err
 	}
 
-	log.Info("device config loaded",
-		zap.String("name", cfg.Config.Name),
-		zap.String("url", cfg.Config.Url),
-		zap.String("auth", string(cfg.Config.AuthMethod)),
-		zap.Int("pool_size", cfg.Config.PoolSize),
-	)
-
 	pins := make(map[int]*config.Digital)
 	for i := range cfg.Chip.DigitalPins {
 		pins[cfg.Chip.DigitalPins[i].Pin] = &cfg.Chip.DigitalPins[i]
 	}
-
 	pwmPins := make(map[int]*config.PWM)
 	for i := range cfg.Chip.PWMPins {
 		pwmPins[cfg.Chip.PWMPins[i].Pin] = &cfg.Chip.PWMPins[i]
 	}
-
 	i2cDevices := make(map[string]*config.I2C)
 	for i := range cfg.Chip.I2CDevices {
 		key := fmt.Sprintf("%d:%s", cfg.Chip.I2CDevices[i].Bus, cfg.Chip.I2CDevices[i].Address)
@@ -71,27 +61,47 @@ func New(file *os.File) (config.Device, error) {
 		log:        log,
 	}
 
+	if cfg.Config.Mode == "local" {
+		d.exec = newLocalExecutor()
+		log.Info("mode: local (direct hardware)")
+	} else {
+		pool, err := newSSHPool(&cfg.Config, log)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create SSH pool: %v", err)
+		}
+		d.pool = pool
+		d.exec = newSSHExecutor(pool)
+		log.Info("mode: SSH", zap.String("url", cfg.Config.Url))
+	}
+
 	return d, nil
 }
 
-func (d *Device) Name() string {
-	return d.cfg.Config.Name
-}
+func (d *Device) Name() string { return d.cfg.Config.Name }
 
 func (d *Device) Start() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	pool, err := newSSHPool(&d.cfg.Config, d.log)
-	if err != nil {
-		return fmt.Errorf("failed to create SSH pool: %v", err)
+	if err := d.exec.connect(); err != nil {
+		return fmt.Errorf("executor connect failed: %v", err)
 	}
-	d.pool = pool
-	d.watch = newWatcher(pool, d.log)
+
+	d.watch = newWatcher(d.pool, d.log)
 
 	for _, pin := range d.pins {
-		if err := d.initPin(pin); err != nil {
+		direction := "ip"
+		level := "dl"
+		if pin.Direction == config.OUTPUT {
+			direction = "op"
+			if pin.Value == config.HIGH {
+				level = "dh"
+			}
+		}
+		if err := d.exec.initPin(pin.Pin, direction, level); err != nil {
 			d.log.Warn("failed to init pin", zap.Int("pin", pin.Pin), zap.Error(err))
+		} else {
+			d.log.Info("pin initialized", zap.Int("pin", pin.Pin), zap.String("dir", direction))
 		}
 	}
 
@@ -119,54 +129,19 @@ func (d *Device) Stop() error {
 	if d.mqtt != nil {
 		d.mqtt.Close()
 	}
-	if d.pool != nil {
-		d.pool.Close()
-	}
+	d.exec.close()
 	d.started = false
 	d.log.Info("device stopped", zap.String("name", d.Name()))
 	_ = d.log.Sync()
 	return nil
 }
 
-func (d *Device) initPin(pin *config.Digital) error {
-	direction := "ip"
-	if pin.Direction == config.OUTPUT {
-		direction = "op"
-	}
-	var cmd string
-	if pin.Direction == config.OUTPUT {
-		level := "dl"
-		if pin.Value == config.HIGH {
-			level = "dh"
-		}
-		cmd = fmt.Sprintf("sudo pinctrl set %d %s %s", pin.Pin, direction, level)
-	} else {
-		cmd = fmt.Sprintf("sudo pinctrl set %d %s", pin.Pin, direction)
-	}
-	if _, err := d.pool.Run(cmd); err != nil {
-		return err
-	}
-	d.log.Info("pin initialized",
-		zap.Int("pin", pin.Pin),
-		zap.String("direction", direction),
-		zap.Int("value", int(pin.Value)),
-	)
-	return nil
-}
-
 func (d *Device) Read(pin int) (int, error) {
-	out, err := d.pool.Run(fmt.Sprintf("sudo pinctrl get %d", pin))
+	value, err := d.exec.readPin(pin)
 	if err != nil {
 		d.totalErrors.Add(1)
-		return 0, fmt.Errorf("read pin %d failed: %v", pin, err)
+		return 0, fmt.Errorf("read pin %d: %v", pin, err)
 	}
-
-	value, err := parsePinOutput(out)
-	if err != nil {
-		d.totalErrors.Add(1)
-		return 0, err
-	}
-
 	if p, ok := d.pins[pin]; ok {
 		p.Value = config.Value(value)
 	}
@@ -177,15 +152,11 @@ func (d *Device) Read(pin int) (int, error) {
 
 func (d *Device) Write(pin int, value int) error {
 	if value != 0 && value != 1 {
-		return fmt.Errorf("invalid pin value %d: must be 0 or 1", value)
+		return fmt.Errorf("invalid value %d: must be 0 or 1", value)
 	}
-	level := "dl"
-	if value == 1 {
-		level = "dh"
-	}
-	if _, err := d.pool.Run(fmt.Sprintf("sudo pinctrl set %d op %s", pin, level)); err != nil {
+	if err := d.exec.writePin(pin, value); err != nil {
 		d.totalErrors.Add(1)
-		return fmt.Errorf("write pin %d failed: %v", pin, err)
+		return fmt.Errorf("write pin %d: %v", pin, err)
 	}
 	if p, ok := d.pins[pin]; ok {
 		p.Value = config.Value(value)
@@ -193,10 +164,8 @@ func (d *Device) Write(pin int, value int) error {
 	}
 	d.totalWrites.Add(1)
 	d.log.Debug("pin written", zap.Int("pin", pin), zap.Int("value", value))
-
-	// publish to MQTT if bound
 	if d.mqtt != nil {
-		d.mqtt.Publish(config.PinEvent{Pin: pin, NewValue: value})
+		d.mqtt.PublishGPIO(pin, value)
 	}
 	return nil
 }
@@ -216,9 +185,7 @@ func (d *Device) Watch(pin int) (<-chan config.PinEvent, error) {
 	return ch, nil
 }
 
-func (d *Device) StopWatch(pin int) {
-	d.watch.StopWatch(pin)
-}
+func (d *Device) StopWatch(pin int) { d.watch.StopWatch(pin) }
 
 func (d *Device) SetDutyCycle(pin int, duty float64) error {
 	if duty < 0 || duty > 100 {
@@ -228,12 +195,8 @@ func (d *Device) SetDutyCycle(pin int, duty float64) error {
 	if !ok {
 		return fmt.Errorf("PWM pin %d not configured", pin)
 	}
-	raw := int(duty / 100.0 * 255)
-	if _, err := d.pool.Run(fmt.Sprintf("pigs PFS %d %d", pin, pwmPin.FrequencyHz)); err != nil {
-		return fmt.Errorf("failed to set PWM frequency on pin %d: %v", pin, err)
-	}
-	if _, err := d.pool.Run(fmt.Sprintf("pigs PWM %d %d", pin, raw)); err != nil {
-		return fmt.Errorf("failed to set PWM duty on pin %d: %v", pin, err)
+	if err := d.exec.setPWM(pin, pwmPin.FrequencyHz, duty); err != nil {
+		return fmt.Errorf("set PWM pin %d: %v", pin, err)
 	}
 	pwmPin.DutyCycle = duty
 	d.log.Info("PWM set", zap.Int("pin", pin), zap.Float64("duty", duty))
@@ -248,15 +211,10 @@ func (d *Device) GetDutyCycle(pin int) (float64, error) {
 	if !ok {
 		return 0, fmt.Errorf("PWM pin %d not configured", pin)
 	}
-	out, err := d.pool.Run(fmt.Sprintf("pigs GDC %d", pin))
+	duty, err := d.exec.getPWM(pin)
 	if err != nil {
-		return pwmPin.DutyCycle, nil
+		return pwmPin.DutyCycle, nil // fallback to cache
 	}
-	raw, err := strconv.Atoi(strings.TrimSpace(out))
-	if err != nil {
-		return pwmPin.DutyCycle, nil
-	}
-	duty := float64(raw) / 255.0 * 100.0
 	pwmPin.DutyCycle = duty
 	return duty, nil
 }
@@ -265,8 +223,8 @@ func (d *Device) StopPWM(pin int) error {
 	if _, ok := d.pwmPins[pin]; !ok {
 		return fmt.Errorf("PWM pin %d not configured", pin)
 	}
-	if _, err := d.pool.Run(fmt.Sprintf("pigs PWM %d 0", pin)); err != nil {
-		return fmt.Errorf("failed to stop PWM on pin %d: %v", pin, err)
+	if err := d.exec.stopPWM(pin); err != nil {
+		return fmt.Errorf("stop PWM pin %d: %v", pin, err)
 	}
 	d.pwmPins[pin].DutyCycle = 0
 	d.log.Info("PWM stopped", zap.Int("pin", pin))
@@ -280,15 +238,11 @@ func (d *Device) I2CWrite(bus int, address string, data []byte) error {
 	if len(data) == 0 {
 		return fmt.Errorf("data cannot be empty")
 	}
-	cmd := fmt.Sprintf("i2cset -y %d %s", bus, address)
-	for _, b := range data {
-		cmd += fmt.Sprintf(" 0x%02x", b)
-	}
-	if _, err := d.pool.Run(cmd); err != nil {
+	if err := d.exec.i2cWrite(bus, address, data); err != nil {
 		d.totalErrors.Add(1)
-		return fmt.Errorf("I2C write failed bus=%d addr=%s: %v", bus, address, err)
+		return fmt.Errorf("I2C write bus=%d addr=%s: %v", bus, address, err)
 	}
-	d.log.Debug("I2C write", zap.Int("bus", bus), zap.String("addr", address), zap.Int("bytes", len(data)))
+	d.log.Debug("I2C write", zap.Int("bus", bus), zap.String("addr", address))
 	if d.mqtt != nil {
 		d.mqtt.PublishI2C(bus, address, data)
 	}
@@ -299,21 +253,12 @@ func (d *Device) I2CRead(bus int, address string, length int) ([]byte, error) {
 	if length <= 0 {
 		return nil, fmt.Errorf("length must be > 0")
 	}
-	result := make([]byte, 0, length)
-	for i := 0; i < length; i++ {
-		out, err := d.pool.Run(fmt.Sprintf("i2cget -y %d %s 0x%02x", bus, address, i))
-		if err != nil {
-			d.totalErrors.Add(1)
-			return nil, fmt.Errorf("I2C read failed bus=%d addr=%s offset=%d: %v", bus, address, i, err)
-		}
-		out = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(out), "0x"))
-		val, err := strconv.ParseInt(out, 16, 32)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse I2C byte '%s': %v", out, err)
-		}
-		result = append(result, byte(val))
+	result, err := d.exec.i2cRead(bus, address, length)
+	if err != nil {
+		d.totalErrors.Add(1)
+		return nil, fmt.Errorf("I2C read bus=%d addr=%s: %v", bus, address, err)
 	}
-	d.log.Debug("I2C read", zap.Int("bus", bus), zap.String("addr", address), zap.Int("bytes", length))
+	d.log.Debug("I2C read", zap.Int("bus", bus), zap.String("addr", address))
 	if d.mqtt != nil {
 		d.mqtt.PublishI2C(bus, address, result)
 	}
@@ -344,8 +289,12 @@ func (d *Device) UnbindMQTT() {
 }
 
 func (d *Device) Health() config.HealthStatus {
+	poolSize := 0
+	if d.pool != nil {
+		poolSize = d.pool.Size()
+	}
 	return config.HealthStatus{
-		Connected:      d.pool != nil && d.pool.Size() > 0,
+		Connected:      d.started && (d.cfg.Config.Mode == "local" || poolSize > 0),
 		Reconnects:     int(d.reconnects.Load()),
 		ActiveWatchers: d.watch.ActiveCount(),
 		MQTTBound:      d.mqtt != nil && d.mqtt.bound.Load(),
@@ -353,35 +302,96 @@ func (d *Device) Health() config.HealthStatus {
 }
 
 func (d *Device) Metrics() config.DeviceMetrics {
+	poolSize := 0
+	if d.pool != nil {
+		poolSize = d.pool.Size()
+	}
 	return config.DeviceMetrics{
 		TotalReads:  d.totalReads.Load(),
 		TotalWrites: d.totalWrites.Load(),
 		TotalErrors: d.totalErrors.Load(),
-		SSHPoolSize: d.pool.Size(),
+		SSHPoolSize: poolSize,
 		Reconnects:  d.reconnects.Load(),
 	}
 }
 
 func parsePinOutput(out string) (int, error) {
-	lower := strings.ToLower(out)
-	if strings.Contains(lower, "| hi") {
+	lower := out
+	if len(out) > 0 {
+		lower = string([]byte(out))
+	}
+	for i, c := range out {
+		if c >= 'A' && c <= 'Z' {
+			lower = out[:i] + string(c+32) + out[i+1:]
+		}
+	}
+	if contains(lower, "| hi") {
 		return 1, nil
 	}
-	if strings.Contains(lower, "| lo") {
+	if contains(lower, "| lo") {
 		return 0, nil
 	}
-	fields := strings.Fields(out)
+	fields := splitFields(out)
 	if len(fields) > 0 {
-		last := strings.ToLower(fields[len(fields)-1])
+		last := fields[len(fields)-1]
 		switch last {
-		case "hi":
+		case "hi", "HI":
 			return 1, nil
-		case "lo":
+		case "lo", "LO":
 			return 0, nil
 		}
-		if val, err := strconv.Atoi(last); err == nil {
+		var val int
+		if _, err := fmt.Sscanf(last, "%d", &val); err == nil {
 			return val, nil
 		}
 	}
 	return 0, fmt.Errorf("unexpected pin output: %s", out)
+}
+
+func contains(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsStr(s, sub))
+}
+
+func containsStr(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}
+
+func splitFields(s string) []string {
+	var fields []string
+	inField := false
+	start := 0
+	for i, c := range s {
+		if c == ' ' || c == '\t' || c == '\n' {
+			if inField {
+				fields = append(fields, s[start:i])
+				inField = false
+			}
+		} else {
+			if !inField {
+				start = i
+				inField = true
+			}
+		}
+	}
+	if inField {
+		fields = append(fields, s[start:])
+	}
+	return fields
+}
+
+func parseI2CAddress(address string) (uint16, error) {
+	var addr uint64
+	_, err := fmt.Sscanf(address, "0x%x", &addr)
+	if err != nil {
+		_, err = fmt.Sscanf(address, "%x", &addr)
+		if err != nil {
+			return 0, fmt.Errorf("invalid I2C address %s", address)
+		}
+	}
+	return uint16(addr), nil
 }

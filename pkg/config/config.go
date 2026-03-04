@@ -44,15 +44,16 @@ type DeviceConfig struct {
 
 type Config struct {
 	Name          string     `yaml:"device-name"  validate:"required"`
-	Url           string     `yaml:"url"          validate:"required"`
-	Port          string     `yaml:"port"         validate:"required,numeric"`
-	AuthMethod    AuthMethod `yaml:"auth-method"  validate:"required,oneof=password key"`
+	Url           string     `yaml:"url"`
+	Port          string     `yaml:"port"         validate:"omitempty,numeric"`
+	Mode          string     `yaml:"mode"         validate:"omitempty,oneof=ssh local"`
+	AuthMethod    AuthMethod `yaml:"auth-method"  validate:"omitempty,oneof=password key"`
 	Password      string     `yaml:"password"`
 	SSHKeyPath    string     `yaml:"ssh-key-path"`
 	SSHKnownHosts string     `yaml:"ssh-known-hosts"`
 	PoolSize      int        `yaml:"pool-size"    validate:"min=1,max=10"`
 	MaxRetries    int        `yaml:"max-retries"  validate:"min=0,max=10"`
-	RetryDelay    int        `yaml:"retry-delay"  validate:"min=0"`
+	RetryDelay    int        `yaml:"retry-delay"  validate:"min=0"` // seconds
 }
 
 type Chip struct {
@@ -167,7 +168,9 @@ func Load(file *os.File) (*DeviceConfig, error) {
 	if err := yaml.NewDecoder(file).Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %v", err)
 	}
-	// defaults
+	if cfg.Config.Mode == "" {
+		cfg.Config.Mode = "ssh"
+	}
 	if cfg.Config.PoolSize == 0 {
 		cfg.Config.PoolSize = 3
 	}
@@ -188,17 +191,19 @@ func (c *DeviceConfig) Validate() error {
 	if err := validate.Struct(c.Config); err != nil {
 		return fmt.Errorf("config validation failed: %v", err)
 	}
-	switch c.Config.AuthMethod {
-	case AuthPassword:
-		if c.Config.Password == "" {
-			return fmt.Errorf("password is required when auth-method is 'password'")
-		}
-	case AuthKey:
-		if c.Config.SSHKeyPath == "" {
-			return fmt.Errorf("ssh-key-path is required when auth-method is 'key'")
-		}
-		if _, err := os.Stat(c.Config.SSHKeyPath); err != nil {
-			return fmt.Errorf("ssh key file not found: %s", c.Config.SSHKeyPath)
+	if c.Config.Mode != "local" {
+		switch c.Config.AuthMethod {
+		case AuthPassword:
+			if c.Config.Password == "" {
+				return fmt.Errorf("password is required when auth-method is 'password'")
+			}
+		case AuthKey:
+			if c.Config.SSHKeyPath == "" {
+				return fmt.Errorf("ssh-key-path is required when auth-method is 'key'")
+			}
+			if _, err := os.Stat(c.Config.SSHKeyPath); err != nil {
+				return fmt.Errorf("ssh key file not found: %s", c.Config.SSHKeyPath)
+			}
 		}
 	}
 	for _, pin := range c.Chip.DigitalPins {
