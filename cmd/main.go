@@ -59,7 +59,7 @@ func main() {
 	} else {
 		go func() {
 			for event := range events {
-				log.Printf("📍 Pin %d changed: %d → %d",
+				log.Printf("Pin %d changed: %d → %d",
 					event.Pin, event.OldValue, event.NewValue)
 			}
 		}()

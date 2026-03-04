@@ -1,9 +1,9 @@
 config:
   device-name: "pi"
-  url: "test"
+  url: "192.168.1.98"
   port: "22"
   auth-method: "password"
-  password: "test"
+  password: "alesio1234"
   # For production use key auth instead:
   # auth-method: "key"
   # ssh-key-path: "/home/youruser/.ssh/id_rsa"
