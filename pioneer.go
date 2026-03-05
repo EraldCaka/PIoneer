@@ -1,4 +1,4 @@
-package pioneer
+package PIoneer
 
 import (
 	"os"

@@ -1,9 +1,9 @@
 config:
   device-name: "pi"
-  url: "192.168.1.11"
+  url: "raspberry.local"
   port: "22"
   auth-method: "password"
-  password: "11"
+  password: "test"
   # For production use key auth instead:
   # auth-method: "key"
   # ssh-key-path: "/home/youruser/.ssh/id_rsa"
@@ -13,6 +13,18 @@ config:
   retry-delay: 3
 
 chip:
+  name: "gpiochip512"
+  digital-pins:
+    - id: "gpiochip512"
+      pin: 3
+      value: 1
+      direction: 1
+      edge: 0
+    - id: "gpiochip570"
+      pin: 5
+      value: 0
+      direction: 0
+      edge: 1
   pwm-pins:
     - id: "pwm-fan"
       pin: 18
