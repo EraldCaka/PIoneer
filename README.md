@@ -60,7 +60,7 @@ import (
     "log"
     "os"
 
-    "github.com/EraldCaka/PIoneer/pkg/handlers/pioneer"
+    pioneer "github.com/EraldCaka/PIoneer"
 )
 
 func main() {
@@ -101,20 +101,27 @@ func main() {
 
 ## Configuration
 
+Copy `config.yaml` from the repo and fill in your Pi's details:
+
+```bash
+cp config.yaml myconfig.yaml
+```
+
 ```yaml
 config:
   device-name: "pi"
-  url: "192.168.1.x"
+  url: "raspberrypi.local"   # or your Pi's IP address
   port: "22"
-  auth-method: "password"   # or "key"
+  auth-method: "password"    # or "key"
   password: "yourpassword"
   # ssh-key-path: "/home/user/.ssh/id_rsa"
-  pool-size: 3        # concurrent SSH connections
+  pool-size: 3
   max-retries: 5
-  retry-delay: 3      # seconds between retries
+  retry-delay: 3
 
+# optional — declare pins to auto-initialize on Start()
+# not required — Read/Write work on any pin without declaring them
 chip:
-  name: "gpiochip512"
   digital-pins:
     - id: "button"
       pin: 5
@@ -138,20 +145,26 @@ chip:
 
 # optional — enables full MQTT pub/sub
 mqtt:
-  broker: "tcp://192.168.1.x:1883"
+  broker: "tcp://your-broker-ip:1883"
   client-id: "pioneer-pi"
   topic: "pioneer"
   use-tls: false
   qos: 1
 ```
 
-Pins listed under `chip` are auto-initialized on `Start()`. You can also call `Read()` and `Write()` on any pin without declaring it — `pinctrl` gives access to all 54 GPIO pins.
+> **Never commit your config.yaml** — add it to `.gitignore`. It contains your Pi's credentials.
+
+```bash
+echo "config.yaml" >> .gitignore
+```
 
 ---
 
 ## Protocols
 
 ### Digital
+
+`Read()` and `Write()` work on any of the 54 GPIO pins — no config declaration needed.
 
 ```go
 val, err := device.Read(pin)      // returns 0 or 1
@@ -160,7 +173,7 @@ err     := device.Write(pin, 1)   // 0 or 1
 
 ### PWM
 
-Hardware PWM pins on Pi 4: `12`, `13`, `18`, `19`. Requires `pigpiod` running on the Pi.
+Hardware PWM pins on Pi 4: `12`, `13`, `18`, `19`. Requires `pigpiod` running on the Pi and the pin declared in config.
 
 ```go
 device.SetDutyCycle(18, 75.0)   // 0.0–100.0
@@ -170,6 +183,8 @@ device.StopPWM(18)
 
 ### I2C
 
+Requires `i2c-tools` installed on the Pi and I2C enabled via `raspi-config`.
+
 ```go
 device.I2CWrite(1, "0x48", []byte{0x01, 0xFF})
 data, err := device.I2CRead(1, "0x48", 2)
@@ -177,7 +192,7 @@ data, err := device.I2CRead(1, "0x48", 2)
 
 ### Events
 
-PIoneer polls pins internally and emits on change — your code stays clean and reactive:
+PIoneer polls pins internally and emits only on change — your code stays clean and reactive:
 
 ```go
 events, _ := device.Watch(5)
@@ -220,7 +235,7 @@ When a broker is configured, PIoneer automatically publishes every state change 
 
 ## Modes
 
-PIoneer supports two execution modes controlled by a single config field:
+PIoneer supports two execution modes — controlled by a single config field:
 
 ```yaml
 config:
@@ -228,7 +243,32 @@ config:
   mode: "local"  # run directly on the Pi, direct hardware access
 ```
 
-In `local` mode SSH fields are ignored. Use `make deploy` to cross-compile and push to the Pi automatically.
+In `local` mode SSH fields are ignored. Use `make deploy` to cross-compile and push to the Pi:
+
+```bash
+make deploy   # builds for ARM64, copies to Pi, runs it
+```
+
+---
+
+## Pi Setup
+
+Run these once on your Pi before using the library:
+
+```bash
+# required for all protocols
+echo "pi ALL=(ALL) NOPASSWD: /usr/bin/pinctrl" | sudo tee /etc/sudoers.d/pinctrl
+
+# required for I2C
+sudo apt install -y i2c-tools
+sudo raspi-config nonint do_i2c 0
+
+# required for PWM
+sudo apt install -y pigpio
+sudo systemctl enable pigpiod && sudo systemctl start pigpiod
+
+sudo reboot
+```
 
 ---
 
@@ -258,7 +298,7 @@ metrics := device.Metrics()
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `device-name` | string | — | Device identifier |
-| `url` | string | — | Pi IP address |
+| `url` | string | — | Pi IP or hostname |
 | `port` | string | `"22"` | SSH port |
 | `mode` | string | `"ssh"` | `ssh` or `local` |
 | `auth-method` | string | — | `password` or `key` |
@@ -297,23 +337,6 @@ metrics := device.Metrics()
 
 ---
 
-## Pi Setup
-
-```bash
-sudo apt install -y i2c-tools pigpio
-sudo raspi-config nonint do_i2c 0
-sudo systemctl enable pigpiod && sudo systemctl start pigpiod
-echo "pi ALL=(ALL) NOPASSWD: /usr/bin/pinctrl" | sudo tee /etc/sudoers.d/pinctrl
-```
-
----
-
-## License
-
-MIT
-
----
-
 ## Testing
 
 PIoneer has two test layers — unit tests that run anywhere, and integration tests that run against a real Pi.
@@ -322,7 +345,7 @@ PIoneer has two test layers — unit tests that run anywhere, and integration te
 # unit tests — no Pi required
 go test ./...
 
-# unit tests with coverage
+# with coverage
 go test ./... -cover
 
 # integration tests — requires a live Pi
@@ -330,8 +353,6 @@ INTEGRATION=1 go test ./pkg/handlers/pioneer/... -v
 ```
 
 ### Unit tests
-
-Unit tests cover validation, parsing, error handling, and the event system without any hardware or network dependency.
 
 ```go
 func TestParsePinOutput_High(t *testing.T) {
@@ -347,38 +368,9 @@ func TestSetDutyCycle_OutOfRange(t *testing.T) {
         t.Error("expected error for duty > 100")
     }
 }
-
-func TestWatcher_EmitsEvents(t *testing.T) {
-    log, _ := zap.NewDevelopment()
-    w := newWatcher(nil, log)
-
-    counter := 0
-    readFn := func(pin int) (int, error) {
-        counter++
-        if counter%2 == 0 {
-            return 1, nil
-        }
-        return 0, nil
-    }
-
-    ch, err := w.Watch(3, readFn)
-    if err != nil {
-        t.Fatalf("Watch failed: %v", err)
-    }
-    defer w.StopWatch(3)
-
-    select {
-    case event := <-ch:
-        t.Logf("event: pin %d %d→%d", event.Pin, event.OldValue, event.NewValue)
-    case <-time.After(2 * time.Second):
-        t.Log("no event (ok in CI)")
-    }
-}
 ```
 
 ### Integration tests
-
-Integration tests run against a live Pi. Set `INTEGRATION=1` and point your `config.yaml` at the Pi:
 
 ```bash
 INTEGRATION=1 go test ./pkg/handlers/pioneer/... -v -run TestIntegration
@@ -388,15 +380,10 @@ INTEGRATION=1 go test ./pkg/handlers/pioneer/... -v -run TestIntegration
 === RUN   TestIntegration_StartStop
 --- PASS: TestIntegration_StartStop (3.21s)
 === RUN   TestIntegration_ReadWrite
-    pioneer_test.go: Pin 3: 1
-    pioneer_test.go: Pin 3 → HIGH
-    pioneer_test.go: Pin 3 → LOW
 --- PASS: TestIntegration_ReadWrite (1.84s)
 === RUN   TestIntegration_Watch
-    pioneer_test.go: event: pin 5 changed 0→1
 --- PASS: TestIntegration_Watch (0.72s)
 === RUN   TestIntegration_Metrics
-    pioneer_test.go: reads=1 writes=2 errors=0 pool=3
 --- PASS: TestIntegration_Metrics (2.10s)
 PASS  ok  github.com/EraldCaka/PIoneer/pkg/handlers/pioneer  7.87s
 ```
@@ -414,3 +401,9 @@ BenchmarkRead-8                1000000   1756 ns/op    32 B/op    1 allocs/op
 ```
 
 > SSH round-trip latency (~5–15ms) dominates integration benchmarks — the library overhead itself is sub-microsecond.
+
+---
+
+## License
+
+MIT
