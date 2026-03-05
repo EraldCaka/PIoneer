@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/EraldCaka/PIoneer/pkg/handlers/pioneer"
+	"github.com/EraldCaka/PIoneer"
 )
 
 func main() {
@@ -16,7 +16,7 @@ func main() {
 	}
 	defer configFile.Close()
 
-	device, err := pioneer.New(configFile)
+	device, err := PIoneer.New(configFile)
 	if err != nil {
 		log.Fatalf("failed to initialize device: %v", err)
 	}

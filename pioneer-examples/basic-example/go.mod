@@ -2,7 +2,7 @@ module basic-examples
 
 go 1.24.0
 
-require github.com/EraldCaka/PIoneer v0.0.0-20260305083456-e73d2357eafe
+require github.com/EraldCaka/PIoneer v1.0.0
 
 require (
 	github.com/eclipse/paho.mqtt.golang v1.5.1 // indirect
