@@ -40,17 +40,20 @@ func New(file *os.File) (config.Device, error) {
 	}
 
 	pins := make(map[int]*config.Digital)
-	for i := range cfg.Chip.DigitalPins {
-		pins[cfg.Chip.DigitalPins[i].Pin] = &cfg.Chip.DigitalPins[i]
-	}
 	pwmPins := make(map[int]*config.PWM)
-	for i := range cfg.Chip.PWMPins {
-		pwmPins[cfg.Chip.PWMPins[i].Pin] = &cfg.Chip.PWMPins[i]
-	}
 	i2cDevices := make(map[string]*config.I2C)
-	for i := range cfg.Chip.I2CDevices {
-		key := fmt.Sprintf("%d:%s", cfg.Chip.I2CDevices[i].Bus, cfg.Chip.I2CDevices[i].Address)
-		i2cDevices[key] = &cfg.Chip.I2CDevices[i]
+
+	if cfg.Chip != nil {
+		for i := range cfg.Chip.DigitalPins {
+			pins[cfg.Chip.DigitalPins[i].Pin] = &cfg.Chip.DigitalPins[i]
+		}
+		for i := range cfg.Chip.PWMPins {
+			pwmPins[cfg.Chip.PWMPins[i].Pin] = &cfg.Chip.PWMPins[i]
+		}
+		for i := range cfg.Chip.I2CDevices {
+			key := fmt.Sprintf("%d:%s", cfg.Chip.I2CDevices[i].Bus, cfg.Chip.I2CDevices[i].Address)
+			i2cDevices[key] = &cfg.Chip.I2CDevices[i]
+		}
 	}
 
 	d := &Device{
@@ -89,19 +92,21 @@ func (d *Device) Start() error {
 
 	d.watch = newWatcher(d.pool, d.log)
 
-	for _, pin := range d.pins {
-		direction := "ip"
-		level := "dl"
-		if pin.Direction == config.OUTPUT {
-			direction = "op"
-			if pin.Value == config.HIGH {
-				level = "dh"
+	if d.cfg.Chip != nil {
+		for _, pin := range d.pins {
+			direction := "ip"
+			level := "dl"
+			if pin.Direction == config.OUTPUT {
+				direction = "op"
+				if pin.Value == config.HIGH {
+					level = "dh"
+				}
 			}
-		}
-		if err := d.exec.initPin(pin.Pin, direction, level); err != nil {
-			d.log.Warn("failed to init pin", zap.Int("pin", pin.Pin), zap.Error(err))
-		} else {
-			d.log.Info("pin initialized", zap.Int("pin", pin.Pin), zap.String("dir", direction))
+			if err := d.exec.initPin(pin.Pin, direction, level); err != nil {
+				d.log.Warn("failed to init pin", zap.Int("pin", pin.Pin), zap.Error(err))
+			} else {
+				d.log.Info("pin initialized", zap.Int("pin", pin.Pin), zap.String("dir", direction))
+			}
 		}
 	}
 
@@ -129,10 +134,14 @@ func (d *Device) Stop() error {
 	if d.mqtt != nil {
 		d.mqtt.Close()
 	}
-	d.exec.close()
+	if d.exec != nil {
+		d.exec.close()
+	}
 	d.started = false
-	d.log.Info("device stopped", zap.String("name", d.Name()))
-	_ = d.log.Sync()
+	if d.log != nil {
+		d.log.Info("device stopped", zap.String("name", d.Name()))
+		_ = d.log.Sync()
+	}
 	return nil
 }
 
@@ -213,7 +222,7 @@ func (d *Device) GetDutyCycle(pin int) (float64, error) {
 	}
 	duty, err := d.exec.getPWM(pin)
 	if err != nil {
-		return pwmPin.DutyCycle, nil // fallback to cache
+		return pwmPin.DutyCycle, nil
 	}
 	pwmPin.DutyCycle = duty
 	return duty, nil

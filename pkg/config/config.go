@@ -38,7 +38,7 @@ const (
 
 type DeviceConfig struct {
 	Config Config `yaml:"config" validate:"required,dive"`
-	Chip   Chip   `yaml:"chip"   validate:"dive"`
+	Chip   *Chip  `yaml:"chip"`
 	MQTT   *MQTT  `yaml:"mqtt"`
 }
 
@@ -57,8 +57,7 @@ type Config struct {
 }
 
 type Chip struct {
-	Name        string    `yaml:"name"         validate:"required"`
-	DigitalPins []Digital `yaml:"digital-pins" validate:"required,dive"`
+	DigitalPins []Digital `yaml:"digital-pins" validate:"dive"`
 	PWMPins     []PWM     `yaml:"pwm-pins"     validate:"dive"`
 	I2CDevices  []I2C     `yaml:"i2c-devices"  validate:"dive"`
 }
@@ -98,7 +97,7 @@ type MQTT struct {
 	CertFile string `yaml:"cert-file"`
 	KeyFile  string `yaml:"key-file"`
 	CAFile   string `yaml:"ca-file"`
-	QOS      byte   `yaml:"qos"`
+	QOS      byte   `yaml:"qos"` // 0, 1, or 2
 }
 
 type Device interface {
@@ -206,19 +205,21 @@ func (c *DeviceConfig) Validate() error {
 			}
 		}
 	}
-	for _, pin := range c.Chip.DigitalPins {
-		if err := validate.Struct(pin); err != nil {
-			return fmt.Errorf("digital pin %s invalid: %v", pin.Id, err)
+	if c.Chip != nil {
+		for _, pin := range c.Chip.DigitalPins {
+			if err := validate.Struct(pin); err != nil {
+				return fmt.Errorf("digital pin %s invalid: %v", pin.Id, err)
+			}
 		}
-	}
-	for _, p := range c.Chip.PWMPins {
-		if err := validate.Struct(p); err != nil {
-			return fmt.Errorf("PWM pin %s invalid: %v", p.Id, err)
+		for _, p := range c.Chip.PWMPins {
+			if err := validate.Struct(p); err != nil {
+				return fmt.Errorf("PWM pin %s invalid: %v", p.Id, err)
+			}
 		}
-	}
-	for _, i := range c.Chip.I2CDevices {
-		if err := validate.Struct(i); err != nil {
-			return fmt.Errorf("I2C device %s invalid: %v", i.Id, err)
+		for _, i := range c.Chip.I2CDevices {
+			if err := validate.Struct(i); err != nil {
+				return fmt.Errorf("I2C device %s invalid: %v", i.Id, err)
+			}
 		}
 	}
 	return nil
