@@ -35,7 +35,7 @@ chip:
       bus: 1
       address: "0x48"
 mqtt:
-  broker: "tcp://192.168.1.64:1883"
+  broker: "tcp://xxxxxx:1883"
   client-id: "pioneer-pi"
   topic: "pioneer"
   username: ""
