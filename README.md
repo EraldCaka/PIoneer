@@ -1,38 +1,107 @@
 <div align="center">
-  <img src="pioneer-icon.svg" width="120" height="120" alt="PIoneer"/>
-  <h1>PIoneer</h1>
-  <p><strong>GPIO control for Raspberry Pi over SSH — from any machine on your network</strong></p>
+  <img src="./pioneer-icon.svg" width="120" alt="PIoneer logo" />
+
+  # PIoneer
+
+  **A Go SDK for Raspberry Pi control, IoT messaging, and MQTT-driven device workflows**
+
+  Control GPIO, PWM, and I2C from Go — locally on the Pi or remotely over SSH — with built-in MQTT publishing, command topics, health signals, and event-driven pin watching.
 
   <p>
-    <img src="https://img.shields.io/badge/Go-1.23+-00ADD8?style=flat-square&logo=go&logoColor=white"/>
-    <img src="https://img.shields.io/badge/MQTT-supported-ff6b35?style=flat-square"/>
-    <img src="https://img.shields.io/badge/protocols-Digital%20%7C%20PWM%20%7C%20I2C-00d4ff?style=flat-square"/>
-    <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square"/>
-    <img src="https://img.shields.io/badge/tests-passing-brightgreen?style=flat-square"/>
-    <img src="https://img.shields.io/badge/coverage-87%25-brightgreen?style=flat-square"/>
+    <a href="https://pkg.go.dev/github.com/EraldCaka/PIoneer">
+      <img src="https://img.shields.io/badge/go-reference-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go Reference" />
+    </a>
+    <img src="https://img.shields.io/badge/Go-1.24+-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go Version" />
+    <img src="https://img.shields.io/badge/Raspberry%20Pi-GPIO%20%7C%20PWM%20%7C%20I2C-C51A4A?style=for-the-badge&logo=raspberrypi&logoColor=white" alt="Raspberry Pi" />
+    <img src="https://img.shields.io/badge/MQTT-integrated-ff6b35?style=for-the-badge" alt="MQTT integrated" />
+    <img src="https://img.shields.io/badge/Mode-SSH%20or%20Local-1f6feb?style=for-the-badge" alt="SSH or Local mode" />
+    <img src="https://img.shields.io/badge/License-MIT-2ea043?style=for-the-badge" alt="MIT License" />
   </p>
 
   <p>
-    <a href="#installation">Installation</a> ·
-    <a href="#quick-start">Quick Start</a> ·
-    <a href="#protocols">Protocols</a> ·
-    <a href="#mqtt">MQTT</a> ·
-    <a href="#configuration">Configuration</a> ·
+    <a href="#why-pioneer">Why PIoneer</a>
+    ·
+    <a href="#installation">Installation</a>
+    ·
+    <a href="#quick-start">Quick Start</a>
+    ·
+    <a href="#configuration">Configuration</a>
+    ·
+    <a href="#mqtt">MQTT</a>
+    ·
+    <a href="#protocols">Protocols</a>
+    ·
     <a href="#testing">Testing</a>
   </p>
 </div>
 
 ---
 
-Unlike other GPIO libraries that run directly on the Pi, **PIoneer runs on your machine** and controls the Pi remotely over SSH. Write your Go code on your Mac or server, keep your Pi deployment-free.
+## Why PIoneer
 
-```
-Your Machine  ──SSH──▶  Raspberry Pi GPIO
-     │                        │
-     └──MQTT──▶  Broker ◀─────┘
+Most Raspberry Pi GPIO libraries assume your Go process runs **on the Pi**.
+
+PIoneer gives you both options:
+
+- **`ssh` mode** — run your Go service on your laptop, server, or edge controller and operate the Pi remotely
+- **`local` mode** — run directly on the Pi for native hardware access
+- **Built-in MQTT** — publish state changes and receive commands through topics
+- **Event-driven pin watching** — react to changes without wiring polling logic through your application
+- **One SDK, multiple protocols** — digital GPIO, PWM, I2C, health, metrics, and device status
+
+```text
+            ┌──────────────────────┐
+            │   Your Go Service    │
+            │  Mac / Linux / VM    │
+            └─────────┬────────────┘
+                      │
+                 SSH  │
+                      ▼
+            ┌──────────────────────┐
+            │    Raspberry Pi      │
+            │ GPIO / PWM / I2C     │
+            └─────────┬────────────┘
+                      │
+                      │ MQTT
+                      ▼
+            ┌──────────────────────┐
+            │     MQTT Broker      │
+            └──────────────────────┘
 ```
 
-> Still under active development.
+---
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="./public/logs-sdk.png" alt="PIoneer SDK logs" />
+    </td>
+    <td width="50%">
+      <img src="./public/mqtt-messages.png" alt="PIoneer MQTT messages" />
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><sub>SDK logs and device lifecycle output</sub></td>
+    <td align="center"><sub>MQTT state and command message flow</sub></td>
+  </tr>
+</table>
+
+---
+
+## Features
+
+- Remote Raspberry Pi control over SSH
+- Local execution mode for direct hardware access
+- Digital GPIO read/write support
+- PWM control for supported hardware pins
+- I2C read/write helpers
+- MQTT publish/subscribe integration
+- Device health and runtime metrics
+- Internal watcher system for edge-triggered workflows
+- Structured config-driven startup
+- Example apps and broker setup for local testing
 
 ---
 
@@ -42,11 +111,16 @@ Your Machine  ──SSH──▶  Raspberry Pi GPIO
 go get github.com/EraldCaka/PIoneer
 ```
 
-Requires `sshpass` on the machine running the library:
+### External dependency
+
+If you use **SSH mode**, install `sshpass` on the machine running your Go application:
 
 ```bash
-brew install sshpass   # macOS
-apt install sshpass    # Linux
+# macOS
+brew install sshpass
+
+# Debian / Ubuntu
+sudo apt install sshpass
 ```
 
 ---
@@ -57,102 +131,131 @@ apt install sshpass    # Linux
 package main
 
 import (
-    "log"
-    "os"
+	"log"
+	"os"
+	"time"
 
-    pioneer "github.com/EraldCaka/PIoneer"
+	pioneer "github.com/EraldCaka/PIoneer"
 )
 
 func main() {
-    f, err := os.Open("config.yaml")
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer f.Close()
+	file, err := os.Open("config.yaml")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
 
-    device, err := pioneer.New(f)
-    if err != nil {
-        log.Fatal(err)
-    }
+	device, err := pioneer.New(file)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    if err := device.Start(); err != nil {
-        log.Fatal(err)
-    }
-    defer device.Stop()
+	if err := device.Start(); err != nil {
+		log.Fatal(err)
+	}
+	defer device.Stop()
 
-    // read a pin
-    val, _ := device.Read(3)
-    log.Printf("pin 3: %d", val)
+	for {
+		_ = device.SetDutyCycle(18, 25.0)
+		time.Sleep(5 * time.Millisecond)
+		_ = device.StopPWM(18)
 
-    // write a pin
-    device.Write(3, 1)
+		data, err := device.ReadSensor("weather")
+		if err != nil {
+			log.Println("weather read failed:", err)
+		} else {
+			log.Println(data)
+		}
 
-    // watch for changes — event driven, no polling in your code
-    events, _ := device.Watch(5)
-    defer device.StopWatch(5)
-
-    for event := range events {
-        log.Printf("pin %d: %d → %d", event.Pin, event.OldValue, event.NewValue)
-    }
+		time.Sleep(5 * time.Second)
+	}
 }
 ```
 
 ---
 
+## Execution Modes
+
+PIoneer supports two runtime modes:
+
+```yaml
+config:
+  mode: "ssh"    # run your app anywhere, control the Pi remotely
+  # mode: "local" # run directly on the Pi
+```
+
+### `ssh` mode
+Use this when your service runs on another machine and talks to the Pi remotely.
+
+### `local` mode
+Use this when your binary runs on the Raspberry Pi itself. SSH-specific fields are ignored.
+
+---
+
 ## Configuration
 
-Copy `config.yaml` from the repo and fill in your Pi's details:
+Start with a config file:
 
 ```bash
 cp config.yaml myconfig.yaml
 ```
 
+### Example
+
 ```yaml
 config:
-  device-name: "pi"
-  url: "raspberrypi.local"   # or your Pi's IP address
+  device-name: "pi-main"
+  mode: "ssh"
+  url: "raspberrypi.local"
   port: "22"
-  auth-method: "password"    # or "key"
+  auth-method: "password"   # password | key
   password: "yourpassword"
   # ssh-key-path: "/home/user/.ssh/id_rsa"
   pool-size: 3
   max-retries: 5
   retry-delay: 3
 
-# optional — declare pins to auto-initialize on Start()
-# not required — Read/Write work on any pin without declaring them
 chip:
   digital-pins:
     - id: "button"
       pin: 5
       value: 0
-      direction: 0   # 0=input, 1=output
+      direction: 0
       edge: 1
+
     - id: "led"
       pin: 3
       value: 1
       direction: 1
       edge: 0
+
   pwm-pins:
     - id: "fan"
       pin: 18
       frequency: 1000
       duty-cycle: 0
+
   i2c-devices:
     - id: "temp-sensor"
       bus: 1
       address: "0x48"
 
-# optional — enables full MQTT pub/sub
 mqtt:
-  broker: "tcp://your-broker-ip:1883"
-  client-id: "pioneer-pi"
+  broker: "tcp://127.0.0.1:1883"
+  client-id: "pioneer-pi-main"
   topic: "pioneer"
   use-tls: false
   qos: 1
 ```
 
-> **Never commit your config.yaml** — add it to `.gitignore`. It contains your Pi's credentials.
+### Notes
+
+- `digital-pins`, `pwm-pins`, and `i2c-devices` are optional
+- Digital `Read()` and `Write()` calls can operate without predeclaring every pin
+- PWM pins should be declared in config before use
+- MQTT is optional, but once configured the SDK can publish device state and receive control commands
+
+> Do not commit your real `config.yaml`. It contains device connection details and possibly credentials.
 
 ```bash
 echo "config.yaml" >> .gitignore
@@ -162,245 +265,302 @@ echo "config.yaml" >> .gitignore
 
 ## Protocols
 
-### Digital
+## Digital GPIO
 
-`Read()` and `Write()` work on any of the 54 GPIO pins — no config declaration needed.
+Use digital operations for standard high/low pin control.
 
 ```go
-val, err := device.Read(pin)      // returns 0 or 1
-err     := device.Write(pin, 1)   // 0 or 1
+val, err := device.Read(pin)
+err = device.Write(pin, 1)
 ```
 
-### PWM
+- `Read(pin)` returns `0` or `1`
+- `Write(pin, value)` writes `0` or `1`
 
-Hardware PWM pins on Pi 4: `12`, `13`, `18`, `19`. Requires `pigpiod` running on the Pi and the pin declared in config.
+---
+
+## PWM
+
+Use PWM for devices like fans, dimmable LEDs, or motor control.
 
 ```go
-device.SetDutyCycle(18, 75.0)   // 0.0–100.0
-device.GetDutyCycle(18)
-device.StopPWM(18)
+if err := device.SetDutyCycle(18, 75.0); err != nil {
+	log.Fatal(err)
+}
+
+duty, err := device.GetDutyCycle(18)
+if err != nil {
+	log.Fatal(err)
+}
+
+log.Println("duty:", duty)
+
+if err := device.StopPWM(18); err != nil {
+	log.Fatal(err)
+}
 ```
 
-### I2C
+### Typical Raspberry Pi 4 hardware PWM pins
 
-Requires `i2c-tools` installed on the Pi and I2C enabled via `raspi-config`.
+- `12`
+- `13`
+- `18`
+- `19`
+
+---
+
+## I2C
+
+Communicate with sensors and peripherals over I2C.
 
 ```go
-device.I2CWrite(1, "0x48", []byte{0x01, 0xFF})
+if err := device.I2CWrite(1, "0x48", []byte{0x01, 0xFF}); err != nil {
+	log.Fatal(err)
+}
+
 data, err := device.I2CRead(1, "0x48", 2)
+if err != nil {
+	log.Fatal(err)
+}
+
+log.Printf("data: %x", data)
 ```
 
-### Events
+---
 
-PIoneer polls pins internally and emits only on change — your code stays clean and reactive:
+## Events
+
+Watch a pin and react only when its value changes.
 
 ```go
-events, _ := device.Watch(5)
+events, err := device.Watch(5)
+if err != nil {
+	log.Fatal(err)
+}
 defer device.StopWatch(5)
 
 for event := range events {
-    fmt.Printf("pin %d: %d → %d\n", event.Pin, event.OldValue, event.NewValue)
+	log.Printf(
+		"pin %d changed from %d to %d",
+		event.Pin,
+		event.OldValue,
+		event.NewValue,
+	)
 }
 ```
+
+This keeps application code cleaner than manual polling loops.
 
 ---
 
 ## MQTT
 
-When a broker is configured, PIoneer automatically publishes every state change and subscribes to control topics — no extra code needed.
+When MQTT is configured, PIoneer can:
+
+- publish pin and device state changes
+- receive control commands from subscribed topics
+- expose health and error signals for automation or monitoring
 
 ### Published topics
 
-| Topic | Payload |
+| Topic | Example payload |
 |---|---|
-| `pioneer/gpio/<pin>/state` | `{"pin":3,"value":1,"label":"HIGH","direction":"output","timestamp":...,"device":"pi"}` |
-| `pioneer/pwm/<pin>/state` | `{"pin":18,"duty_cycle":50.0,"frequency_hz":1000,"timestamp":...}` |
-| `pioneer/i2c/<bus>/<addr>/state` | `{"bus":1,"address":"0x48","data":[...],"hex":"01ff","length":2,"timestamp":...}` |
-| `pioneer/device/status` | `{"device":"pi","status":"online","ssh_pool_size":3,"reconnects":0}` |
-| `pioneer/device/error` | `{"protocol":"gpio","error":"...","timestamp":...}` |
+| `pioneer/gpio/<pin>/state` | `{"pin":3,"value":1,"label":"HIGH","direction":"output","timestamp":"..."}` |
+| `pioneer/pwm/<pin>/state` | `{"pin":18,"duty_cycle":50.0,"frequency_hz":1000,"timestamp":"..."}` |
+| `pioneer/i2c/<bus>/<addr>/state` | `{"bus":1,"address":"0x48","data":[1,255],"hex":"01ff","length":2,"timestamp":"..."}` |
+| `pioneer/device/status` | `{"device":"pi-main","status":"online","ssh_pool_size":3,"reconnects":0}` |
+| `pioneer/device/error` | `{"protocol":"gpio","error":"...","timestamp":"..."}` |
 
 ### Control topics
 
 | Topic | Payload | Action |
 |---|---|---|
-| `pioneer/gpio/<pin>/set` | `"1"` or `"0"` | Write pin |
-| `pioneer/gpio/<pin>/get` | *(empty)* | Read and publish pin state |
+| `pioneer/gpio/<pin>/set` | `"1"` or `"0"` | Write digital value |
+| `pioneer/gpio/<pin>/get` | empty | Read and publish current state |
 | `pioneer/pwm/<pin>/set` | `"50.0"` | Set duty cycle |
-| `pioneer/pwm/<pin>/stop` | *(empty)* | Stop PWM |
-| `pioneer/i2c/write` | `{"bus":1,"address":"0x48","data":[1,255]}` | I2C write |
-| `pioneer/i2c/read` | `{"bus":1,"address":"0x48","length":2}` | I2C read and publish |
-| `pioneer/device/ping` | *(empty)* | Trigger full status response |
+| `pioneer/pwm/<pin>/stop` | empty | Stop PWM |
+| `pioneer/i2c/write` | `{"bus":1,"address":"0x48","data":[1,255]}` | Write bytes |
+| `pioneer/i2c/read` | `{"bus":1,"address":"0x48","length":2}` | Read bytes and publish |
+| `pioneer/device/ping` | empty | Trigger device status response |
+
+### Practical use cases
+
+- dashboard-driven GPIO toggles
+- remote fan or relay control
+- sensor ingestion through MQTT pipelines
+- edge telemetry and command handling
+- device fleet status monitoring
 
 ---
 
-## Modes
+## Health and Metrics
 
-PIoneer supports two execution modes — controlled by a single config field:
+PIoneer exposes runtime visibility for operational checks.
 
-```yaml
-config:
-  mode: "ssh"    # default — run on your Mac/server, control Pi remotely
-  mode: "local"  # run directly on the Pi, direct hardware access
+```go
+health := device.Health()
+
+// health.Connected
+// health.Reconnects
+// health.ActiveWatchers
+// health.MQTTBound
 ```
 
-In `local` mode SSH fields are ignored. Use `make deploy` to cross-compile and push to the Pi:
+```go
+metrics := device.Metrics()
 
-```bash
-make deploy   # builds for ARM64, copies to Pi, runs it
+// metrics.TotalReads
+// metrics.TotalWrites
+// metrics.TotalErrors
+// metrics.SSHPoolSize
+// metrics.Reconnects
 ```
+
+These are useful for logs, dashboards, and liveness checks.
 
 ---
 
-## Pi Setup
+## Raspberry Pi Setup
 
-Run these once on your Pi before using the library:
+Run the following on the Pi before using the SDK.
+
+### Required for GPIO access
 
 ```bash
-# required for all protocols
 echo "pi ALL=(ALL) NOPASSWD: /usr/bin/pinctrl" | sudo tee /etc/sudoers.d/pinctrl
+```
 
-# required for I2C
+### Required for I2C
+
+```bash
 sudo apt install -y i2c-tools
 sudo raspi-config nonint do_i2c 0
+```
 
-# required for PWM
+### Required for PWM
+
+```bash
 sudo apt install -y pigpio
-sudo systemctl enable pigpiod && sudo systemctl start pigpiod
+sudo systemctl enable pigpiod
+sudo systemctl start pigpiod
+```
 
+Then reboot:
+
+```bash
 sudo reboot
 ```
 
 ---
 
-## Health & Metrics
+## Examples
 
-```go
-health := device.Health()
-// health.Connected       bool
-// health.Reconnects      int
-// health.ActiveWatchers  int
-// health.MQTTBound       bool
+The repository includes example material and local broker resources under `pioneer-examples/`.
 
-metrics := device.Metrics()
-// metrics.TotalReads    int64
-// metrics.TotalWrites   int64
-// metrics.TotalErrors   int64
-// metrics.SSHPoolSize   int
-// metrics.Reconnects    int64
+A typical workflow:
+
+```bash
+cd pioneer-examples
+docker compose up -d
 ```
+
+Then run your test app against the configured broker and Raspberry Pi target.
 
 ---
 
-## Config Reference
+## Configuration Reference
 
-**config**
+### `config`
 
 | Field | Type | Default | Description |
-|---|---|---|---|
-| `device-name` | string | — | Device identifier |
-| `url` | string | — | Pi IP or hostname |
-| `port` | string | `"22"` | SSH port |
+|---|---:|---:|---|
+| `device-name` | string | — | Logical device identifier |
 | `mode` | string | `"ssh"` | `ssh` or `local` |
+| `url` | string | — | Raspberry Pi hostname or IP |
+| `port` | string | `"22"` | SSH port |
 | `auth-method` | string | — | `password` or `key` |
 | `password` | string | — | SSH password |
-| `ssh-key-path` | string | — | Path to private key |
+| `ssh-key-path` | string | — | Private key path |
 | `pool-size` | int | `3` | Concurrent SSH connections |
-| `max-retries` | int | `5` | Retries on failure |
-| `retry-delay` | int | `3` | Seconds between retries |
+| `max-retries` | int | `5` | Retry attempts |
+| `retry-delay` | int | `3` | Delay between retries in seconds |
 
-**digital pin**
-
-| Field | Type | Description |
-|---|---|---|
-| `id` | string | Unique identifier |
-| `pin` | int | GPIO pin number (1–53) |
-| `value` | int | Default value: `0` or `1` |
-| `direction` | int | `0`=input, `1`=output |
-| `edge` | int | `0`=none, `1`=rising, `2`=falling, `3`=both |
-
-**pwm pin**
+### `digital-pins`
 
 | Field | Type | Description |
 |---|---|---|
-| `id` | string | Unique identifier |
-| `pin` | int | Hardware PWM pin (`12`, `13`, `18`, `19`) |
+| `id` | string | Logical identifier |
+| `pin` | int | GPIO number |
+| `value` | int | Initial value: `0` or `1` |
+| `direction` | int | `0=input`, `1=output` |
+| `edge` | int | `0=none`, `1=rising`, `2=falling`, `3=both` |
+
+### `pwm-pins`
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string | Logical identifier |
+| `pin` | int | PWM-capable pin |
 | `frequency` | int | Frequency in Hz |
-| `duty-cycle` | float | Initial duty cycle (0–100) |
+| `duty-cycle` | float | Initial duty cycle, `0-100` |
 
-**i2c device**
+### `i2c-devices`
 
 | Field | Type | Description |
 |---|---|---|
-| `id` | string | Unique identifier |
-| `bus` | int | I2C bus number (`0` or `1`) |
-| `address` | string | Device address e.g. `"0x48"` |
+| `id` | string | Logical identifier |
+| `bus` | int | I2C bus number |
+| `address` | string | Device address such as `"0x48"` |
 
 ---
 
 ## Testing
 
-PIoneer has two test layers — unit tests that run anywhere, and integration tests that run against a real Pi.
+PIoneer supports both standard unit testing and real-device integration testing.
+
+### Run unit tests
 
 ```bash
-# unit tests — no Pi required
 go test ./...
+```
 
-# with coverage
+### Run with coverage
+
+```bash
 go test ./... -cover
+```
 
-# integration tests — requires a live Pi
+### Run integration tests
+
+```bash
 INTEGRATION=1 go test ./pkg/handlers/pioneer/... -v
 ```
 
-### Unit tests
-
-```go
-func TestParsePinOutput_High(t *testing.T) {
-    val, err := parsePinOutput("3: op -- pu | hi // GPIO3 = output")
-    if err != nil || val != 1 {
-        t.Errorf("expected 1, got %d", val)
-    }
-}
-
-func TestSetDutyCycle_OutOfRange(t *testing.T) {
-    d := newTestDevice(t)
-    if err := d.SetDutyCycle(18, 101.0); err == nil {
-        t.Error("expected error for duty > 100")
-    }
-}
-```
-
-### Integration tests
-
-```bash
-INTEGRATION=1 go test ./pkg/handlers/pioneer/... -v -run TestIntegration
-```
-
-```
-=== RUN   TestIntegration_StartStop
---- PASS: TestIntegration_StartStop (3.21s)
-=== RUN   TestIntegration_ReadWrite
---- PASS: TestIntegration_ReadWrite (1.84s)
-=== RUN   TestIntegration_Watch
---- PASS: TestIntegration_Watch (0.72s)
-=== RUN   TestIntegration_Metrics
---- PASS: TestIntegration_Metrics (2.10s)
-PASS  ok  github.com/EraldCaka/PIoneer/pkg/handlers/pioneer  7.87s
-```
-
-### Benchmark
+### Run benchmarks
 
 ```bash
 go test ./pkg/handlers/pioneer/... -bench=. -benchmem
 ```
 
-```
-BenchmarkParsePinOutput-8     18492771    64.3 ns/op    0 B/op    0 allocs/op
-BenchmarkWrite-8               1000000   1842 ns/op    48 B/op    2 allocs/op
-BenchmarkRead-8                1000000   1756 ns/op    32 B/op    1 allocs/op
-```
+---
 
-> SSH round-trip latency (~5–15ms) dominates integration benchmarks — the library overhead itself is sub-microsecond.
+## Design Notes
+
+PIoneer is built for a practical style of Go development:
+
+- keep application logic on the machine where it belongs
+- keep Raspberry Pi access simple and scriptable
+- expose hardware operations through clear APIs
+- make MQTT a first-class integration path, not an afterthought
+
+This makes it suitable for:
+
+- home automation
+- edge control systems
+- test rigs
+- remote device orchestration
+- internal IoT tooling
+- Raspberry Pi-backed prototypes that need to become services
 
 ---
 
