@@ -49,26 +49,6 @@ PIoneer gives you both options:
 - **Event-driven pin watching** — react to changes without wiring polling logic through your application
 - **One SDK, multiple protocols** — digital GPIO, PWM, I2C, health, metrics, and device status
 
-```text
-            ┌──────────────────────┐
-            │   Your Go Service    │
-            │  Mac / Linux / VM    │
-            └─────────┬────────────┘
-                      │
-                 SSH  │
-                      ▼
-            ┌──────────────────────┐
-            │    Raspberry Pi      │
-            │ GPIO / PWM / I2C     │
-            └─────────┬────────────┘
-                      │
-                      │ MQTT
-                      ▼
-            ┌──────────────────────┐
-            │     MQTT Broker      │
-            └──────────────────────┘
-```
-
 ---
 
 ## Screenshots
