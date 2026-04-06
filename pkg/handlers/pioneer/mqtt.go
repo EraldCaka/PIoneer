@@ -37,7 +37,7 @@ type PWMStatePayload struct {
 type I2CStatePayload struct {
 	Bus       int    `json:"bus"`
 	Address   string `json:"address"`
-	Data      []byte `json:"data"`
+	Bytes     []int  `json:"bytes"`
 	Hex       string `json:"hex"`
 	Length    int    `json:"length"`
 	Timestamp int64  `json:"timestamp"`
@@ -317,16 +317,27 @@ func (b *mqttBridge) PublishI2C(bus int, address string, data []byte) {
 	if !b.bound.Load() {
 		return
 	}
+
+	bytesOut := make([]int, len(data))
+	for i, v := range data {
+		bytesOut[i] = int(v)
+	}
+
 	payload := I2CStatePayload{
 		Bus:       bus,
 		Address:   address,
-		Data:      data,
+		Bytes:     bytesOut,
 		Hex:       fmt.Sprintf("%x", data),
 		Length:    len(data),
 		Timestamp: time.Now().UnixMilli(),
 		Device:    b.device.Name(),
 	}
-	b.publish(fmt.Sprintf("%s/i2c/%d/%s/state", b.cfg.Topic, bus, strings.TrimPrefix(address, "0x")), payload, false)
+
+	b.publish(
+		fmt.Sprintf("%s/i2c/%d/%s/state", b.cfg.Topic, bus, strings.TrimPrefix(address, "0x")),
+		payload,
+		false,
+	)
 }
 
 func (b *mqttBridge) PublishStatus(status string) {

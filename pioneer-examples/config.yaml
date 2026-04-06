@@ -1,39 +1,30 @@
 config:
   device-name: "pi"
-  url: "raspberry.local"
+  mode: "ssh"
+  url: "192.168.1.98"
   port: "22"
+  username: "pi"
   auth-method: "password"
-  password: "test"
-  # For production use key auth instead:
-  # auth-method: "key"
-  # ssh-key-path: "/home/youruser/.ssh/id_rsa"
-  # ssh-known-hosts: "/home/youruser/.ssh/known_hosts"
-  pool-size: 3
-  max-retries: 5
-  retry-delay: 3
+  password: "alesio1234"
+  pool-size: 1
+  max-retries: 3
+  retry-delay: 2
 
 chip:
-  name: "gpiochip512"
-  digital-pins:
-    - id: "gpiochip512"
-      pin: 3
-      value: 1
-      direction: 1
-      edge: 0
-    - id: "gpiochip570"
-      pin: 5
-      value: 0
-      direction: 0
-      edge: 1
+  digital-pins: []
+
   pwm-pins:
-    - id: "pwm-fan"
+    - id: "buzzer"
       pin: 18
       frequency: 1000
       duty-cycle: 0
+
   i2c-devices:
-    - id: "i2c-sensor"
+    - id: "weather"
+      type: "bmp280"
       bus: 1
-      address: "0x48"
+      address: "0x76"
+
 mqtt:
   broker: "tcp://192.168.1.64:1883"
   client-id: "pioneer-pi"

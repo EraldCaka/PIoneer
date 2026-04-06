@@ -20,6 +20,7 @@ type Device struct {
 	pins       map[int]*config.Digital
 	pwmPins    map[int]*config.PWM
 	i2cDevices map[string]*config.I2C
+	sensors    map[string]sensorDriver
 	log        *zap.Logger
 	mu         sync.RWMutex
 
@@ -61,12 +62,13 @@ func New(file *os.File) (config.Device, error) {
 		pins:       pins,
 		pwmPins:    pwmPins,
 		i2cDevices: i2cDevices,
+		sensors:    make(map[string]sensorDriver),
 		log:        log,
 	}
 
 	if cfg.Config.Mode == "local" {
 		d.exec = newLocalExecutor()
-		log.Info("mode: local (direct hardware)")
+		log.Info("mode: local")
 	} else {
 		pool, err := newSSHPool(&cfg.Config, log)
 		if err != nil {
@@ -74,7 +76,20 @@ func New(file *os.File) (config.Device, error) {
 		}
 		d.pool = pool
 		d.exec = newSSHExecutor(pool)
-		log.Info("mode: SSH", zap.String("url", cfg.Config.Url))
+		log.Info("mode: ssh", zap.String("url", cfg.Config.Url))
+	}
+
+	if cfg.Chip != nil {
+		for i := range cfg.Chip.I2CDevices {
+			dev := cfg.Chip.I2CDevices[i]
+			switch dev.Type {
+			case "bmp280":
+				d.sensors[dev.Id] = newBMP280Driver(d, dev.Id, dev.Bus, dev.Address)
+			case "":
+			default:
+				return nil, fmt.Errorf("unsupported sensor type %q for i2c device %q", dev.Type, dev.Id)
+			}
+		}
 	}
 
 	return d, nil
@@ -104,11 +119,23 @@ func (d *Device) Start() error {
 			}
 			if err := d.exec.initPin(pin.Pin, direction, level); err != nil {
 				d.log.Warn("failed to init pin", zap.Int("pin", pin.Pin), zap.Error(err))
-			} else {
-				d.log.Info("pin initialized", zap.Int("pin", pin.Pin), zap.String("dir", direction))
 			}
 		}
 	}
+
+	// d.autoDiscoverSensors()
+
+	// for id, s := range d.sensors {
+	// 	if err := s.Probe(); err != nil {
+	// 		d.log.Warn("sensor probe failed", zap.String("sensor", id), zap.Error(err))
+	// 		continue
+	// 	}
+	// 	if err := s.Init(); err != nil {
+	// 		d.log.Warn("sensor init failed", zap.String("sensor", id), zap.Error(err))
+	// 		continue
+	// 	}
+	// 	d.log.Info("sensor initialized", zap.String("sensor", id))
+	// }
 
 	if d.cfg.MQTT != nil {
 		bridge, err := newMQTTBridge(d.cfg.MQTT, d, d.log)
@@ -138,10 +165,8 @@ func (d *Device) Stop() error {
 		d.exec.close()
 	}
 	d.started = false
-	if d.log != nil {
-		d.log.Info("device stopped", zap.String("name", d.Name()))
-		_ = d.log.Sync()
-	}
+	d.log.Info("device stopped", zap.String("name", d.Name()))
+	_ = d.log.Sync()
 	return nil
 }
 
@@ -155,13 +180,12 @@ func (d *Device) Read(pin int) (int, error) {
 		p.Value = config.Value(value)
 	}
 	d.totalReads.Add(1)
-	d.log.Debug("pin read", zap.Int("pin", pin), zap.Int("value", value))
 	return value, nil
 }
 
 func (d *Device) Write(pin int, value int) error {
 	if value != 0 && value != 1 {
-		return fmt.Errorf("invalid value %d: must be 0 or 1", value)
+		return fmt.Errorf("invalid value %d", value)
 	}
 	if err := d.exec.writePin(pin, value); err != nil {
 		d.totalErrors.Add(1)
@@ -172,7 +196,6 @@ func (d *Device) Write(pin int, value int) error {
 		p.Direction = config.OUTPUT
 	}
 	d.totalWrites.Add(1)
-	d.log.Debug("pin written", zap.Int("pin", pin), zap.Int("value", value))
 	if d.mqtt != nil {
 		d.mqtt.PublishGPIO(pin, value)
 	}
@@ -198,7 +221,7 @@ func (d *Device) StopWatch(pin int) { d.watch.StopWatch(pin) }
 
 func (d *Device) SetDutyCycle(pin int, duty float64) error {
 	if duty < 0 || duty > 100 {
-		return fmt.Errorf("duty cycle %.2f out of range [0-100]", duty)
+		return fmt.Errorf("duty cycle %.2f out of range [0,100]", duty)
 	}
 	pwmPin, ok := d.pwmPins[pin]
 	if !ok {
@@ -208,7 +231,6 @@ func (d *Device) SetDutyCycle(pin int, duty float64) error {
 		return fmt.Errorf("set PWM pin %d: %v", pin, err)
 	}
 	pwmPin.DutyCycle = duty
-	d.log.Info("PWM set", zap.Int("pin", pin), zap.Float64("duty", duty))
 	if d.mqtt != nil {
 		d.mqtt.PublishPWM(pin, duty)
 	}
@@ -236,9 +258,16 @@ func (d *Device) StopPWM(pin int) error {
 		return fmt.Errorf("stop PWM pin %d: %v", pin, err)
 	}
 	d.pwmPins[pin].DutyCycle = 0
-	d.log.Info("PWM stopped", zap.Int("pin", pin))
 	if d.mqtt != nil {
 		d.mqtt.PublishPWM(pin, 0)
+	}
+	return nil
+}
+
+func (d *Device) I2CProbe(bus int, address string) error {
+	if err := d.exec.i2cProbe(bus, address); err != nil {
+		d.totalErrors.Add(1)
+		return fmt.Errorf("I2C probe bus=%d addr=%s: %v", bus, address, err)
 	}
 	return nil
 }
@@ -251,7 +280,6 @@ func (d *Device) I2CWrite(bus int, address string, data []byte) error {
 		d.totalErrors.Add(1)
 		return fmt.Errorf("I2C write bus=%d addr=%s: %v", bus, address, err)
 	}
-	d.log.Debug("I2C write", zap.Int("bus", bus), zap.String("addr", address))
 	if d.mqtt != nil {
 		d.mqtt.PublishI2C(bus, address, data)
 	}
@@ -267,33 +295,96 @@ func (d *Device) I2CRead(bus int, address string, length int) ([]byte, error) {
 		d.totalErrors.Add(1)
 		return nil, fmt.Errorf("I2C read bus=%d addr=%s: %v", bus, address, err)
 	}
-	d.log.Debug("I2C read", zap.Int("bus", bus), zap.String("addr", address))
 	if d.mqtt != nil {
 		d.mqtt.PublishI2C(bus, address, result)
 	}
 	return result, nil
 }
 
-func (d *Device) BindMQTT(cfg *config.MQTT) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.mqtt != nil {
-		d.mqtt.Close()
+func (d *Device) I2CWriteRegister(bus int, address string, register byte, data []byte) error {
+	if err := d.exec.i2cWriteRegister(bus, address, register, data); err != nil {
+		d.totalErrors.Add(1)
+		return fmt.Errorf("I2C write register bus=%d addr=%s reg=0x%02x: %v", bus, address, register, err)
 	}
-	bridge, err := newMQTTBridge(cfg, d, d.log)
-	if err != nil {
-		return err
-	}
-	d.mqtt = bridge
 	return nil
 }
 
-func (d *Device) UnbindMQTT() {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+func (d *Device) I2CReadRegister(bus int, address string, register byte, length int) ([]byte, error) {
+	if length <= 0 {
+		return nil, fmt.Errorf("length must be > 0")
+	}
+	result, err := d.exec.i2cReadRegister(bus, address, register, length)
+	if err != nil {
+		d.totalErrors.Add(1)
+		return nil, fmt.Errorf("I2C read register bus=%d addr=%s reg=0x%02x: %v", bus, address, register, err)
+	}
 	if d.mqtt != nil {
-		d.mqtt.Close()
-		d.mqtt = nil
+		d.mqtt.PublishI2C(bus, address, result)
+	}
+	return result, nil
+}
+
+func (d *Device) ReadSensor(id string) (map[string]any, error) {
+	s, ok := d.sensors[id]
+	if !ok {
+		return nil, fmt.Errorf("sensor %q not configured", id)
+	}
+
+	data, err := s.Read()
+	if err != nil {
+		d.totalErrors.Add(1)
+		return nil, fmt.Errorf("read sensor %q: %v", id, err)
+	}
+	return data, nil
+}
+
+func (d *Device) ReadSensors() (map[string]map[string]any, error) {
+	out := make(map[string]map[string]any)
+	for id, s := range d.sensors {
+		data, err := s.Read()
+		if err != nil {
+			d.totalErrors.Add(1)
+			out[id] = map[string]any{"error": err.Error()}
+			continue
+		}
+		out[id] = data
+	}
+	return out, nil
+}
+
+func (d *Device) recoverI2C(bus int) error {
+	return d.exec.i2cRecover(bus)
+}
+
+func (d *Device) autoDiscoverSensors() {
+	buses, err := d.exec.i2cListBuses()
+	if err != nil || len(buses) == 0 {
+		buses = []int{1}
+	}
+
+	knownAddresses := []string{"0x76", "0x77"}
+
+	for _, bus := range buses {
+		for _, addr := range knownAddresses {
+			data, err := d.I2CReadRegister(bus, addr, 0xD0, 1)
+			if err != nil || len(data) != 1 {
+				continue
+			}
+
+			switch data[0] {
+			case 0x58:
+				id := fmt.Sprintf("bmp280_%d_%s", bus, addr)
+				if _, exists := d.sensors[id]; !exists {
+					d.sensors[id] = newBMP280Driver(d, id, bus, addr)
+					d.log.Info("auto-discovered sensor",
+						zap.String("id", id),
+						zap.String("type", "bmp280"),
+						zap.Int("bus", bus),
+						zap.String("address", addr),
+					)
+				}
+			}
+		}
 	}
 }
 
@@ -302,10 +393,14 @@ func (d *Device) Health() config.HealthStatus {
 	if d.pool != nil {
 		poolSize = d.pool.Size()
 	}
+	activeWatchers := 0
+	if d.watch != nil {
+		activeWatchers = d.watch.ActiveCount()
+	}
 	return config.HealthStatus{
 		Connected:      d.started && (d.cfg.Config.Mode == "local" || poolSize > 0),
 		Reconnects:     int(d.reconnects.Load()),
-		ActiveWatchers: d.watch.ActiveCount(),
+		ActiveWatchers: activeWatchers,
 		MQTTBound:      d.mqtt != nil && d.mqtt.bound.Load(),
 	}
 }
@@ -322,85 +417,4 @@ func (d *Device) Metrics() config.DeviceMetrics {
 		SSHPoolSize: poolSize,
 		Reconnects:  d.reconnects.Load(),
 	}
-}
-
-func parsePinOutput(out string) (int, error) {
-	lower := out
-	if len(out) > 0 {
-		lower = string([]byte(out))
-	}
-	for i, c := range out {
-		if c >= 'A' && c <= 'Z' {
-			lower = out[:i] + string(c+32) + out[i+1:]
-		}
-	}
-	if contains(lower, "| hi") {
-		return 1, nil
-	}
-	if contains(lower, "| lo") {
-		return 0, nil
-	}
-	fields := splitFields(out)
-	if len(fields) > 0 {
-		last := fields[len(fields)-1]
-		switch last {
-		case "hi", "HI":
-			return 1, nil
-		case "lo", "LO":
-			return 0, nil
-		}
-		var val int
-		if _, err := fmt.Sscanf(last, "%d", &val); err == nil {
-			return val, nil
-		}
-	}
-	return 0, fmt.Errorf("unexpected pin output: %s", out)
-}
-
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsStr(s, sub))
-}
-
-func containsStr(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
-}
-
-func splitFields(s string) []string {
-	var fields []string
-	inField := false
-	start := 0
-	for i, c := range s {
-		if c == ' ' || c == '\t' || c == '\n' {
-			if inField {
-				fields = append(fields, s[start:i])
-				inField = false
-			}
-		} else {
-			if !inField {
-				start = i
-				inField = true
-			}
-		}
-	}
-	if inField {
-		fields = append(fields, s[start:])
-	}
-	return fields
-}
-
-func parseI2CAddress(address string) (uint16, error) {
-	var addr uint64
-	_, err := fmt.Sscanf(address, "0x%x", &addr)
-	if err != nil {
-		_, err = fmt.Sscanf(address, "%x", &addr)
-		if err != nil {
-			return 0, fmt.Errorf("invalid I2C address %s", address)
-		}
-	}
-	return uint16(addr), nil
 }

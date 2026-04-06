@@ -6,113 +6,119 @@ import (
 	"os"
 	"time"
 
-	"github.com/EraldCaka/PIoneer"
+	PIoneer "github.com/EraldCaka/PIoneer"
 )
 
 func main() {
-	configFile, err := os.Open("config.yaml")
+	file, err := os.Open("config.yaml")
 	if err != nil {
-		log.Fatalf("failed to open config file: %v", err)
+		log.Fatalf("failed to open config.yaml: %v", err)
 	}
-	defer configFile.Close()
+	defer file.Close()
 
-	device, err := PIoneer.New(configFile)
+	device, err := PIoneer.New(file)
 	if err != nil {
-		log.Fatalf("failed to initialize device: %v", err)
+		log.Fatalf("failed to create device: %v", err)
 	}
 
 	if err := device.Start(); err != nil {
 		log.Fatalf("failed to start device: %v", err)
 	}
-	defer device.Stop()
-
-	health := device.Health()
-	fmt.Printf("\n=== Health ===\nConnected: %v\nReconnects: %d\nMQTT: %v\n\n",
-		health.Connected, health.Reconnects, health.MQTTBound)
-
-	fmt.Println("=== Digital Pins ===")
-
-	val, err := device.Read(3)
-	if err != nil {
-		log.Printf("read pin 3 failed: %v", err)
-	} else {
-		log.Printf("Pin 3: %d", val)
-	}
-
-	if err := device.Write(3, 1); err != nil {
-		log.Printf("write pin 3 HIGH failed: %v", err)
-	} else {
-		log.Println("Pin 3 → HIGH")
-	}
-
-	if err := device.Write(3, 0); err != nil {
-		log.Printf("write pin 3 LOW failed: %v", err)
-	} else {
-		log.Println("Pin 3 → LOW")
-	}
-
-	fmt.Println("\n=== Watching Pin 5 for 3 seconds ===")
-
-	events, err := device.Watch(5)
-	if err != nil {
-		log.Printf("watch pin 5 failed: %v", err)
-	} else {
-		go func() {
-			for event := range events {
-				log.Printf("Pin %d changed: %d → %d",
-					event.Pin, event.OldValue, event.NewValue)
-			}
-		}()
-	}
-
-	go func() {
-		time.Sleep(500 * time.Millisecond)
-		device.Write(5, 1)
-		time.Sleep(500 * time.Millisecond)
-		device.Write(5, 0)
+	defer func() {
+		if err := device.Stop(); err != nil {
+			log.Printf("failed to stop device: %v", err)
+		}
 	}()
 
-	time.Sleep(3 * time.Second)
-	device.StopWatch(5)
+	log.Println("device started")
+	log.Println("reading weather every 5 seconds; beeping for 2 seconds on each measurement")
 
-	fmt.Println("\n=== PWM Pin 18 ===")
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
 
-	if err := device.SetDutyCycle(18, 50.0); err != nil {
-		log.Printf("PWM set failed: %v", err)
-	} else {
-		log.Println("PWM pin 18 → 50%")
+	for {
+		if err := device.SetDutyCycle(18, 25.0); err != nil {
+			log.Printf("buzzer start failed: %v", err)
+		}
+		time.Sleep(5 * time.Millisecond)
+		if err := device.StopPWM(18); err != nil {
+			log.Printf("buzzer stop failed: %v", err)
+		}
+		data, err := device.ReadSensor("weather")
+		if err != nil {
+			log.Printf("weather read failed: %v", err)
+		} else {
+			printWeather(data)
+		}
+
+		<-ticker.C
+	}
+}
+
+func printWeather(data map[string]any) {
+	now := time.Now().Format("2006-01-02 15:04:05")
+
+	status, _ := data["status"].(string)
+
+	if tempC, okT := asFloat64(data["temperature_c"]); okT {
+		if pressureHPa, okP := asFloat64(data["pressure_hpa"]); okP {
+			pressureMMHg := pressureHPa * 0.750061683
+			fmt.Printf(
+				"[%s] Temperature: %.2f °C | Pressure: %.2f hPa | %.2f mbar | %.2f mmHg\n",
+				now,
+				tempC,
+				pressureHPa,
+				pressureHPa,
+				pressureMMHg,
+			)
+			return
+		}
 	}
 
-	duty, err := device.GetDutyCycle(18)
-	if err != nil {
-		log.Printf("PWM get failed: %v", err)
-	} else {
-		log.Printf("PWM pin 18 duty: %.2f%%", duty)
+	if tempRaw, okT := asInt(data["temp_raw"]); okT {
+		if pressureRaw, okP := asInt(data["pressure_raw"]); okP {
+			fmt.Printf(
+				"[%s] BMP280 RAW | status=%s | temp_adc=%d | pressure_adc=%d | bytes=%v\n",
+				now,
+				status,
+				tempRaw,
+				pressureRaw,
+				data["bytes"],
+			)
+			return
+		}
 	}
 
-	if err := device.StopPWM(18); err != nil {
-		log.Printf("PWM stop failed: %v", err)
-	} else {
-		log.Println("PWM pin 18 stopped")
+	fmt.Printf("[%s] weather: %+v\n", now, data)
+}
+func asFloat64(v any) (float64, bool) {
+	switch t := v.(type) {
+	case float64:
+		return t, true
+	case float32:
+		return float64(t), true
+	case int:
+		return float64(t), true
+	case int64:
+		return float64(t), true
+	case int32:
+		return float64(t), true
+	default:
+		return 0, false
 	}
+}
 
-	fmt.Println("\n=== I2C ===")
-
-	if err := device.I2CWrite(1, "0x48", []byte{0x01, 0xFF}); err != nil {
-		log.Printf("I2C write failed (no device may be connected): %v", err)
-	} else {
-		log.Println("I2C write successful")
+func asInt(v any) (int, bool) {
+	switch t := v.(type) {
+	case int:
+		return t, true
+	case int32:
+		return int(t), true
+	case int64:
+		return int(t), true
+	case float64:
+		return int(t), true
+	default:
+		return 0, false
 	}
-
-	data, err := device.I2CRead(1, "0x48", 2)
-	if err != nil {
-		log.Printf("I2C read failed (no device may be connected): %v", err)
-	} else {
-		log.Printf("I2C data: %x", data)
-	}
-
-	fmt.Println("\n=== Metrics ===")
-	m := device.Metrics()
-	fmt.Printf("Reads: %d | Writes: %d | Errors: %d | Pool: %d | Reconnects: %d\n",
-		m.TotalReads, m.TotalWrites, m.TotalErrors, m.SSHPoolSize, m.Reconnects)
 }

@@ -46,6 +46,7 @@ func newSSHPool(cfg *config.Config, log *zap.Logger) (*sshPool, error) {
 
 func (p *sshPool) Run(command string) (string, error) {
 	var lastErr error
+
 	for attempt := 0; attempt <= p.cfg.MaxRetries; attempt++ {
 		if attempt > 0 {
 			time.Sleep(time.Duration(p.cfg.RetryDelay) * time.Second)
@@ -61,17 +62,17 @@ func (p *sshPool) Run(command string) (string, error) {
 		out, err := p.exec(command)
 		p.sem <- struct{}{}
 
-		if err != nil {
-			lastErr = err
-			continue
+		if err == nil {
+			return out, nil
 		}
-		return out, nil
+		lastErr = err
 	}
+
 	return "", fmt.Errorf("command failed after %d retries: %v", p.cfg.MaxRetries, lastErr)
 }
 
 func (p *sshPool) exec(command string) (string, error) {
-	target := fmt.Sprintf("pi@%s", p.cfg.Url)
+	target := fmt.Sprintf("%s@%s", p.cfg.Username, p.cfg.Url)
 
 	var cmd *exec.Cmd
 	switch p.cfg.AuthMethod {
@@ -84,7 +85,7 @@ func (p *sshPool) exec(command string) (string, error) {
 			target,
 			command,
 		)
-	default: // password
+	default:
 		cmd = exec.Command("sshpass",
 			"-p", p.cfg.Password,
 			"ssh",
