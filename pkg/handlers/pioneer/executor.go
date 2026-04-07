@@ -157,13 +157,6 @@ func (e *sshExecutor) i2cWriteRegister(bus int, address string, register byte, d
 		return fmt.Errorf("register write data cannot be empty")
 	}
 
-	// Single-byte register writes are more reliable with i2cset on this setup.
-	if len(data) == 1 {
-		cmd := fmt.Sprintf("sudo i2cset -y %d %s 0x%02x 0x%02x", bus, address, register, data[0])
-		_, err := e.pool.Run(cmd)
-		return err
-	}
-
 	cmd := fmt.Sprintf("sudo i2ctransfer -y %d w%d@%s 0x%02x", bus, len(data)+1, address, register)
 	for _, b := range data {
 		cmd += fmt.Sprintf(" 0x%02x", b)
