@@ -10,8 +10,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// ── helpers ───────────────────────────────────────────────────────────────────
-
 func newTestDevice(t *testing.T) *Device {
 	t.Helper()
 	yaml := `
