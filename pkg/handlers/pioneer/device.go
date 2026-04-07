@@ -139,6 +139,18 @@ func (d *Device) Start() error {
 		}
 	}
 
+	for id, s := range d.sensors {
+		if err := s.Probe(); err != nil {
+			d.log.Warn("sensor probe failed", zap.String("sensor", id), zap.Error(err))
+			continue
+		}
+		if err := s.Init(); err != nil {
+			d.log.Warn("sensor init failed", zap.String("sensor", id), zap.Error(err))
+			continue
+		}
+		d.log.Info("sensor initialized", zap.String("sensor", id))
+	}
+
 	if d.cfg.MQTT != nil {
 		bridge, err := newMQTTBridge(d.cfg.MQTT, d, d.log)
 		if err != nil {

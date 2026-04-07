@@ -82,6 +82,9 @@ func (d *bmp280Driver) Init() error {
 	if err != nil {
 		return fmt.Errorf("bmp280 calib read: %w", err)
 	}
+	if len(raw) != 24 {
+		return fmt.Errorf("bmp280 calib read: unexpected length %d", len(raw))
+	}
 
 	c := &d.calib
 	c.T1 = uint16(raw[1])<<8 | uint16(raw[0])
@@ -96,6 +99,7 @@ func (d *bmp280Driver) Init() error {
 	c.P7 = int16(uint16(raw[19])<<8 | uint16(raw[18]))
 	c.P8 = int16(uint16(raw[21])<<8 | uint16(raw[20]))
 	c.P9 = int16(uint16(raw[23])<<8 | uint16(raw[22]))
+
 	return nil
 }
 
@@ -103,41 +107,30 @@ func (d *bmp280Driver) Read() (map[string]any, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	var lastErr error
-
-	for attempt := 0; attempt < 3; attempt++ {
-		if attempt > 0 {
-			_ = d.dev.I2CWriteRegister(d.bus, d.address, bmp280RegReset, []byte{bmp280SoftReset})
-			time.Sleep(5 * time.Millisecond)
-			_ = d.dev.recoverI2C(d.bus)
-			time.Sleep(200 * time.Millisecond)
-			_ = d.Init()
-			time.Sleep(40 * time.Millisecond)
-		}
-
-		raw, err := d.dev.I2CReadRegister(d.bus, d.address, bmp280RegData, 6)
-		if err == nil && len(raw) == 6 {
-			pressureRaw := int32(raw[0])<<12 | int32(raw[1])<<4 | int32(raw[2])>>4
-			tempRaw := int32(raw[3])<<12 | int32(raw[4])<<4 | int32(raw[5])>>4
-
-			tempC, pressPA := d.compensate(tempRaw, pressureRaw)
-
-			return map[string]any{
-				"id":          d.id,
-				"type":        "bmp280",
-				"temperature": tempC,
-				"pressure":    pressPA,
-			}, nil
-		}
-
-		if err != nil {
-			lastErr = err
-		} else {
-			lastErr = fmt.Errorf("unexpected raw data length")
-		}
+	if err := d.Init(); err != nil {
+		return nil, fmt.Errorf("bmp280 init before read: %w", err)
 	}
 
-	return nil, fmt.Errorf("raw read failed: %w", lastErr)
+	raw, err := d.dev.I2CReadRegister(d.bus, d.address, bmp280RegData, 6)
+	if err != nil {
+		return nil, fmt.Errorf("bmp280 raw read: %w", err)
+	}
+	if len(raw) != 6 {
+		return nil, fmt.Errorf("bmp280 raw read: unexpected length %d", len(raw))
+	}
+
+	pressureRaw := int32(raw[0])<<12 | int32(raw[1])<<4 | int32(raw[2])>>4
+	tempRaw := int32(raw[3])<<12 | int32(raw[4])<<4 | int32(raw[5])>>4
+
+	tempC, pressPA := d.compensate(tempRaw, pressureRaw)
+
+	return map[string]any{
+		"id":            d.id,
+		"type":          "bmp280",
+		"temperature_c": tempC,
+		"pressure_pa":   pressPA,
+		"pressure_hpa":  pressPA / 100.0,
+	}, nil
 }
 
 func (d *bmp280Driver) compensate(adcT, adcP int32) (tempC, pressPA float64) {
@@ -146,20 +139,28 @@ func (d *bmp280Driver) compensate(adcT, adcP int32) (tempC, pressPA float64) {
 	var1 := (float64(adcT)/16384.0 - float64(c.T1)/1024.0) * float64(c.T2)
 	var2 := (float64(adcT)/131072.0 - float64(c.T1)/8192.0) *
 		(float64(adcT)/131072.0 - float64(c.T1)/8192.0) * float64(c.T3)
+
 	tFine := var1 + var2
 	tempC = tFine / 5120.0
 
-	p1 := tFine/2.0 - 64000.0
-	p2 := p1 * p1 * float64(c.P6) / 32768.0
-	p2 = p2 + p1*float64(c.P5)*2.0
-	p2 = p2/4.0 + float64(c.P4)*65536.0
-	p1 = (float64(c.P3)*p1*p1/524288.0 + float64(c.P2)*p1) / 524288.0
-	p1 = (1.0 + p1/32768.0) * float64(c.P1)
-	if p1 == 0 {
+	var1 = tFine/2.0 - 64000.0
+	var2 = var1 * var1 * float64(c.P6) / 32768.0
+	var2 = var2 + var1*float64(c.P5)*2.0
+	var2 = var2/4.0 + float64(c.P4)*65536.0
+
+	var1 = (float64(c.P3)*var1*var1/524288.0 + float64(c.P2)*var1) / 524288.0
+	var1 = (1.0 + var1/32768.0) * float64(c.P1)
+
+	if var1 == 0 {
 		return tempC, 0
 	}
+
 	p := 1048576.0 - float64(adcP)
-	p = (p - p2/4096.0) * 6250.0 / p1
-	p += (float64(c.P9)*p*p/2147483648.0 + float64(c.P8)*p + float64(c.P7)) / 16.0
-	return tempC, p
+	p = (p - var2/4096.0) * 6250.0 / var1
+
+	var1 = float64(c.P9) * p * p / 2147483648.0
+	var2 = p * float64(c.P8) / 32768.0
+	pressPA = p + (var1+var2+float64(c.P7))/16.0
+
+	return tempC, pressPA
 }
