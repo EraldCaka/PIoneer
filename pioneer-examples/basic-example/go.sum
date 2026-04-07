@@ -1,7 +1,5 @@
-github.com/EraldCaka/PIoneer v0.0.0-20260305215000-a999c2a92473 h1:1PlE504ATZG8xV+871rliVSO0yNqoPG7Ub22L7p5MRQ=
-github.com/EraldCaka/PIoneer v0.0.0-20260305215000-a999c2a92473/go.mod h1:5RiColPAV3gZUnLjVbU7XWQ52Eg/669TBWPy8Ti5L1E=
-github.com/EraldCaka/PIoneer v1.0.0 h1:G+1CeQD5YHABY3p+8faCHIqxTbouRXO38ir1v82T1EI=
-github.com/EraldCaka/PIoneer v1.0.0/go.mod h1:5RiColPAV3gZUnLjVbU7XWQ52Eg/669TBWPy8Ti5L1E=
+github.com/EraldCaka/PIoneer v1.1.1 h1:Lq0btNOnOPfprPol09cGuG4k8Cy8+akMwImXdYcebUo=
+github.com/EraldCaka/PIoneer v1.1.1/go.mod h1:5RiColPAV3gZUnLjVbU7XWQ52Eg/669TBWPy8Ti5L1E=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/eclipse/paho.mqtt.golang v1.5.1 h1:/VSOv3oDLlpqR2Epjn1Q7b2bSTplJIeV2ISgCl2W7nE=
