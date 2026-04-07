@@ -103,20 +103,15 @@ func (e *sshExecutor) stopPWM(pin int) error {
 }
 
 func (e *sshExecutor) i2cProbe(bus int, address string) error {
+	if err := e.i2cRecover(bus); err != nil {
+		return err
+	}
 	_, err := e.pool.Run(fmt.Sprintf("sudo i2ctransfer -y %d w1@%s 0xD0 r1", bus, address))
 	return err
 }
 
 func (e *sshExecutor) i2cRecover(bus int) error {
-	if bus == 1 {
-		cmd := "sudo pinctrl set 3 op dh && sudo pinctrl set 2 op dh" +
-			" && for i in 1 2 3 4 5 6 7 8 9; do sudo pinctrl set 3 dl && sudo pinctrl set 3 dh; done" +
-			" && sudo pinctrl set 2 dl && sudo pinctrl set 2 dh" +
-			" && sudo pinctrl set 3 a0 && sudo pinctrl set 2 a0"
-		_, err := e.pool.Run(fmt.Sprintf("sh -c '%s'", cmd))
-		return err
-	}
-	_, err := e.pool.Run(fmt.Sprintf("sudo i2cdetect -y %d >/dev/null 2>&1 || true", bus))
+	_, err := e.pool.Run(fmt.Sprintf("sudo i2cdetect -y %d >/dev/null 2>&1", bus))
 	return err
 }
 
@@ -141,6 +136,10 @@ func (e *sshExecutor) i2cWrite(bus int, address string, data []byte) error {
 	if len(data) == 0 {
 		return fmt.Errorf("data cannot be empty")
 	}
+	if err := e.i2cRecover(bus); err != nil {
+		return err
+	}
+
 	cmd := fmt.Sprintf("sudo i2ctransfer -y %d w%d@%s", bus, len(data), address)
 	for _, b := range data {
 		cmd += fmt.Sprintf(" 0x%02x", b)
@@ -153,6 +152,10 @@ func (e *sshExecutor) i2cRead(bus int, address string, length int) ([]byte, erro
 	if length <= 0 {
 		return nil, fmt.Errorf("length must be > 0")
 	}
+	if err := e.i2cRecover(bus); err != nil {
+		return nil, err
+	}
+
 	out, err := e.pool.Run(fmt.Sprintf("sudo i2ctransfer -y %d r%d@%s", bus, length, address))
 	if err != nil {
 		return nil, err
@@ -163,6 +166,9 @@ func (e *sshExecutor) i2cRead(bus int, address string, length int) ([]byte, erro
 func (e *sshExecutor) i2cWriteRegister(bus int, address string, register byte, data []byte) error {
 	if len(data) == 0 {
 		return fmt.Errorf("register write data cannot be empty")
+	}
+	if err := e.i2cRecover(bus); err != nil {
+		return err
 	}
 
 	cmd := fmt.Sprintf("sudo i2ctransfer -y %d w%d@%s 0x%02x", bus, len(data)+1, address, register)
@@ -177,6 +183,10 @@ func (e *sshExecutor) i2cReadRegister(bus int, address string, register byte, le
 	if length <= 0 {
 		return nil, fmt.Errorf("length must be > 0")
 	}
+	if err := e.i2cRecover(bus); err != nil {
+		return nil, err
+	}
+
 	cmd := fmt.Sprintf("sudo i2ctransfer -y %d w1@%s 0x%02x r%d", bus, address, register, length)
 	out, err := e.pool.Run(cmd)
 	if err != nil {

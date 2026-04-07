@@ -8,13 +8,11 @@ import (
 
 const (
 	bmp280RegChipID  = 0xD0
-	bmp280RegReset   = 0xE0
 	bmp280RegData    = 0xF7
 	bmp280RegControl = 0xF4
 	bmp280RegCalib   = 0x88
 	bmp280ChipID     = 0x58
 	bmp280ModeNormal = 0x57
-	bmp280SoftReset  = 0xB6
 )
 
 type bmp280Calib struct {
@@ -25,12 +23,13 @@ type bmp280Calib struct {
 }
 
 type bmp280Driver struct {
-	dev     *Device
-	id      string
-	bus     int
-	address string
-	calib   bmp280Calib
-	mu      sync.Mutex
+	dev         *Device
+	id          string
+	bus         int
+	address     string
+	calib       bmp280Calib
+	initialized bool
+	mu          sync.Mutex
 }
 
 func newBMP280Driver(dev *Device, id string, bus int, address string) *bmp280Driver {
@@ -47,36 +46,34 @@ func (d *bmp280Driver) Name() string {
 }
 
 func (d *bmp280Driver) Probe() error {
-	var lastErr error
-
-	for attempt := 0; attempt < 3; attempt++ {
-		_ = d.dev.recoverI2C(d.bus)
-		time.Sleep(200 * time.Millisecond)
-
-		data, err := d.dev.I2CReadRegister(d.bus, d.address, bmp280RegChipID, 1)
-		if err == nil && len(data) == 1 && data[0] == bmp280ChipID {
-			return nil
-		}
-
-		if err != nil {
-			lastErr = err
-		} else if len(data) != 1 {
-			lastErr = fmt.Errorf("unexpected chip ID length: %d", len(data))
-		} else {
-			lastErr = fmt.Errorf("unexpected chip ID: got 0x%02x want 0x%02x", data[0], bmp280ChipID)
-		}
-
-		time.Sleep(200 * time.Millisecond)
+	if err := d.dev.recoverI2C(d.bus); err != nil {
+		return fmt.Errorf("bmp280 recover before probe: %w", err)
 	}
 
-	return fmt.Errorf("probe failed: %w", lastErr)
+	data, err := d.dev.I2CReadRegister(d.bus, d.address, bmp280RegChipID, 1)
+	if err != nil {
+		return fmt.Errorf("bmp280 chip id read: %w", err)
+	}
+	if len(data) != 1 {
+		return fmt.Errorf("bmp280 chip id read: unexpected length %d", len(data))
+	}
+	if data[0] != bmp280ChipID {
+		return fmt.Errorf("unexpected chip ID: got 0x%02x want 0x%02x", data[0], bmp280ChipID)
+	}
+
+	return nil
 }
 
 func (d *bmp280Driver) Init() error {
+	if err := d.dev.recoverI2C(d.bus); err != nil {
+		return fmt.Errorf("bmp280 recover before init: %w", err)
+	}
+
 	if err := d.dev.I2CWriteRegister(d.bus, d.address, bmp280RegControl, []byte{bmp280ModeNormal}); err != nil {
 		return fmt.Errorf("bmp280 init: %w", err)
 	}
-	time.Sleep(40 * time.Millisecond)
+
+	time.Sleep(50 * time.Millisecond)
 
 	raw, err := d.dev.I2CReadRegister(d.bus, d.address, bmp280RegCalib, 24)
 	if err != nil {
@@ -100,6 +97,7 @@ func (d *bmp280Driver) Init() error {
 	c.P8 = int16(uint16(raw[21])<<8 | uint16(raw[20]))
 	c.P9 = int16(uint16(raw[23])<<8 | uint16(raw[22]))
 
+	d.initialized = true
 	return nil
 }
 
@@ -107,14 +105,24 @@ func (d *bmp280Driver) Read() (map[string]any, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	if err := d.Init(); err != nil {
-		return nil, fmt.Errorf("bmp280 init before read: %w", err)
+	if !d.initialized {
+		if err := d.Init(); err != nil {
+			return nil, fmt.Errorf("bmp280 lazy init: %w", err)
+		}
 	}
 
 	raw, err := d.dev.I2CReadRegister(d.bus, d.address, bmp280RegData, 6)
 	if err != nil {
-		return nil, fmt.Errorf("bmp280 raw read: %w", err)
+		if recErr := d.dev.recoverI2C(d.bus); recErr != nil {
+			return nil, fmt.Errorf("bmp280 raw read failed: %v; recover failed: %v", err, recErr)
+		}
+
+		raw, err = d.dev.I2CReadRegister(d.bus, d.address, bmp280RegData, 6)
+		if err != nil {
+			return nil, fmt.Errorf("bmp280 raw read: %w", err)
+		}
 	}
+
 	if len(raw) != 6 {
 		return nil, fmt.Errorf("bmp280 raw read: unexpected length %d", len(raw))
 	}
@@ -130,6 +138,8 @@ func (d *bmp280Driver) Read() (map[string]any, error) {
 		"temperature_c": tempC,
 		"pressure_pa":   pressPA,
 		"pressure_hpa":  pressPA / 100.0,
+		"raw_temp":      tempRaw,
+		"raw_pressure":  pressureRaw,
 	}, nil
 }
 
