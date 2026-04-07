@@ -2,16 +2,19 @@ package pioneer
 
 import (
 	"fmt"
+	"sync"
 	"time"
 )
 
 const (
 	bmp280RegChipID  = 0xD0
+	bmp280RegReset   = 0xE0
 	bmp280RegData    = 0xF7
 	bmp280RegControl = 0xF4
 	bmp280RegCalib   = 0x88
 	bmp280ChipID     = 0x58
 	bmp280ModeNormal = 0x57
+	bmp280SoftReset  = 0xB6
 )
 
 type bmp280Calib struct {
@@ -27,6 +30,7 @@ type bmp280Driver struct {
 	bus     int
 	address string
 	calib   bmp280Calib
+	mu      sync.Mutex
 }
 
 func newBMP280Driver(dev *Device, id string, bus int, address string) *bmp280Driver {
@@ -96,11 +100,20 @@ func (d *bmp280Driver) Init() error {
 }
 
 func (d *bmp280Driver) Read() (map[string]any, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	var lastErr error
 
 	for attempt := 0; attempt < 3; attempt++ {
-		_ = d.dev.recoverI2C(d.bus)
-		time.Sleep(200 * time.Millisecond)
+		if attempt > 0 {
+			_ = d.dev.I2CWriteRegister(d.bus, d.address, bmp280RegReset, []byte{bmp280SoftReset})
+			time.Sleep(5 * time.Millisecond)
+			_ = d.dev.recoverI2C(d.bus)
+			time.Sleep(200 * time.Millisecond)
+			_ = d.Init()
+			time.Sleep(40 * time.Millisecond)
+		}
 
 		raw, err := d.dev.I2CReadRegister(d.bus, d.address, bmp280RegData, 6)
 		if err == nil && len(raw) == 6 {
@@ -122,8 +135,6 @@ func (d *bmp280Driver) Read() (map[string]any, error) {
 		} else {
 			lastErr = fmt.Errorf("unexpected raw data length")
 		}
-
-		time.Sleep(200 * time.Millisecond)
 	}
 
 	return nil, fmt.Errorf("raw read failed: %w", lastErr)
