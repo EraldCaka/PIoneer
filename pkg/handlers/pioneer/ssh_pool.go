@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"go.uber.org/zap"
 
@@ -45,30 +44,15 @@ func newSSHPool(cfg *config.Config, log *zap.Logger) (*sshPool, error) {
 }
 
 func (p *sshPool) Run(command string) (string, error) {
-	var lastErr error
+	<-p.sem
+	defer func() { p.sem <- struct{}{} }()
 
-	for attempt := 0; attempt <= p.cfg.MaxRetries; attempt++ {
-		if attempt > 0 {
-			time.Sleep(time.Duration(p.cfg.RetryDelay) * time.Second)
-			p.log.Warn("retrying SSH command",
-				zap.String("command", command),
-				zap.Int("attempt", attempt),
-				zap.Error(lastErr),
-			)
-			p.reconnects.Add(1)
-		}
-
-		<-p.sem
-		out, err := p.exec(command)
-		p.sem <- struct{}{}
-
-		if err == nil {
-			return out, nil
-		}
-		lastErr = err
+	out, err := p.exec(command)
+	if err != nil {
+		return "", fmt.Errorf("run SSH command %q: %v", command, err)
 	}
 
-	return "", fmt.Errorf("command failed after %d retries: %v", p.cfg.MaxRetries, lastErr)
+	return out, nil
 }
 
 func (p *sshPool) exec(command string) (string, error) {
