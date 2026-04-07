@@ -123,20 +123,6 @@ func (d *Device) Start() error {
 		}
 	}
 
-	// d.autoDiscoverSensors()
-
-	// for id, s := range d.sensors {
-	// 	if err := s.Probe(); err != nil {
-	// 		d.log.Warn("sensor probe failed", zap.String("sensor", id), zap.Error(err))
-	// 		continue
-	// 	}
-	// 	if err := s.Init(); err != nil {
-	// 		d.log.Warn("sensor init failed", zap.String("sensor", id), zap.Error(err))
-	// 		continue
-	// 	}
-	// 	d.log.Info("sensor initialized", zap.String("sensor", id))
-	// }
-
 	if d.cfg.MQTT != nil {
 		bridge, err := newMQTTBridge(d.cfg.MQTT, d, d.log)
 		if err != nil {
@@ -170,160 +156,6 @@ func (d *Device) Stop() error {
 	return nil
 }
 
-func (d *Device) Read(pin int) (int, error) {
-	value, err := d.exec.readPin(pin)
-	if err != nil {
-		d.totalErrors.Add(1)
-		return 0, fmt.Errorf("read pin %d: %v", pin, err)
-	}
-	if p, ok := d.pins[pin]; ok {
-		p.Value = config.Value(value)
-	}
-	d.totalReads.Add(1)
-	return value, nil
-}
-
-func (d *Device) Write(pin int, value int) error {
-	if value != 0 && value != 1 {
-		return fmt.Errorf("invalid value %d", value)
-	}
-	if err := d.exec.writePin(pin, value); err != nil {
-		d.totalErrors.Add(1)
-		return fmt.Errorf("write pin %d: %v", pin, err)
-	}
-	if p, ok := d.pins[pin]; ok {
-		p.Value = config.Value(value)
-		p.Direction = config.OUTPUT
-	}
-	d.totalWrites.Add(1)
-	if d.mqtt != nil {
-		d.mqtt.PublishGPIO(pin, value)
-	}
-	return nil
-}
-
-func (d *Device) Watch(pin int) (<-chan config.PinEvent, error) {
-	ch, err := d.watch.Watch(pin, d.Read)
-	if err != nil {
-		return nil, err
-	}
-	if d.mqtt != nil {
-		go func() {
-			for event := range ch {
-				d.mqtt.Publish(event)
-			}
-		}()
-	}
-	return ch, nil
-}
-
-func (d *Device) StopWatch(pin int) { d.watch.StopWatch(pin) }
-
-func (d *Device) SetDutyCycle(pin int, duty float64) error {
-	if duty < 0 || duty > 100 {
-		return fmt.Errorf("duty cycle %.2f out of range [0,100]", duty)
-	}
-	pwmPin, ok := d.pwmPins[pin]
-	if !ok {
-		return fmt.Errorf("PWM pin %d not configured", pin)
-	}
-	if err := d.exec.setPWM(pin, pwmPin.FrequencyHz, duty); err != nil {
-		return fmt.Errorf("set PWM pin %d: %v", pin, err)
-	}
-	pwmPin.DutyCycle = duty
-	if d.mqtt != nil {
-		d.mqtt.PublishPWM(pin, duty)
-	}
-	return nil
-}
-
-func (d *Device) GetDutyCycle(pin int) (float64, error) {
-	pwmPin, ok := d.pwmPins[pin]
-	if !ok {
-		return 0, fmt.Errorf("PWM pin %d not configured", pin)
-	}
-	duty, err := d.exec.getPWM(pin)
-	if err != nil {
-		return pwmPin.DutyCycle, nil
-	}
-	pwmPin.DutyCycle = duty
-	return duty, nil
-}
-
-func (d *Device) StopPWM(pin int) error {
-	if _, ok := d.pwmPins[pin]; !ok {
-		return fmt.Errorf("PWM pin %d not configured", pin)
-	}
-	if err := d.exec.stopPWM(pin); err != nil {
-		return fmt.Errorf("stop PWM pin %d: %v", pin, err)
-	}
-	d.pwmPins[pin].DutyCycle = 0
-	if d.mqtt != nil {
-		d.mqtt.PublishPWM(pin, 0)
-	}
-	return nil
-}
-
-func (d *Device) I2CProbe(bus int, address string) error {
-	if err := d.exec.i2cProbe(bus, address); err != nil {
-		d.totalErrors.Add(1)
-		return fmt.Errorf("I2C probe bus=%d addr=%s: %v", bus, address, err)
-	}
-	return nil
-}
-
-func (d *Device) I2CWrite(bus int, address string, data []byte) error {
-	if len(data) == 0 {
-		return fmt.Errorf("data cannot be empty")
-	}
-	if err := d.exec.i2cWrite(bus, address, data); err != nil {
-		d.totalErrors.Add(1)
-		return fmt.Errorf("I2C write bus=%d addr=%s: %v", bus, address, err)
-	}
-	if d.mqtt != nil {
-		d.mqtt.PublishI2C(bus, address, data)
-	}
-	return nil
-}
-
-func (d *Device) I2CRead(bus int, address string, length int) ([]byte, error) {
-	if length <= 0 {
-		return nil, fmt.Errorf("length must be > 0")
-	}
-	result, err := d.exec.i2cRead(bus, address, length)
-	if err != nil {
-		d.totalErrors.Add(1)
-		return nil, fmt.Errorf("I2C read bus=%d addr=%s: %v", bus, address, err)
-	}
-	if d.mqtt != nil {
-		d.mqtt.PublishI2C(bus, address, result)
-	}
-	return result, nil
-}
-
-func (d *Device) I2CWriteRegister(bus int, address string, register byte, data []byte) error {
-	if err := d.exec.i2cWriteRegister(bus, address, register, data); err != nil {
-		d.totalErrors.Add(1)
-		return fmt.Errorf("I2C write register bus=%d addr=%s reg=0x%02x: %v", bus, address, register, err)
-	}
-	return nil
-}
-
-func (d *Device) I2CReadRegister(bus int, address string, register byte, length int) ([]byte, error) {
-	if length <= 0 {
-		return nil, fmt.Errorf("length must be > 0")
-	}
-	result, err := d.exec.i2cReadRegister(bus, address, register, length)
-	if err != nil {
-		d.totalErrors.Add(1)
-		return nil, fmt.Errorf("I2C read register bus=%d addr=%s reg=0x%02x: %v", bus, address, register, err)
-	}
-	if d.mqtt != nil {
-		d.mqtt.PublishI2C(bus, address, result)
-	}
-	return result, nil
-}
-
 func (d *Device) ReadSensor(id string) (map[string]any, error) {
 	s, ok := d.sensors[id]
 	if !ok {
@@ -350,10 +182,6 @@ func (d *Device) ReadSensors() (map[string]map[string]any, error) {
 		out[id] = data
 	}
 	return out, nil
-}
-
-func (d *Device) recoverI2C(bus int) error {
-	return d.exec.i2cRecover(bus)
 }
 
 func (d *Device) autoDiscoverSensors() {
