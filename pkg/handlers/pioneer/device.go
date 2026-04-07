@@ -97,6 +97,22 @@ func New(file *os.File) (config.Device, error) {
 
 func (d *Device) Name() string { return d.cfg.Config.Name }
 
+func (d *Device) Info() config.DeviceInfo {
+	status := "Offline"
+	if d.started {
+		status = "Online"
+	}
+	return config.DeviceInfo{
+		Name:   d.cfg.Config.Name,
+		Mode:   d.cfg.Config.Mode,
+		Status: status,
+	}
+}
+
+func (d *Device) SystemMetrics() (config.SystemMetrics, error) {
+	return d.exec.systemMetrics()
+}
+
 func (d *Device) Start() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()

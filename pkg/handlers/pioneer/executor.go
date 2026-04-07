@@ -2,6 +2,7 @@ package pioneer
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -11,6 +12,8 @@ import (
 	"periph.io/x/conn/v3/i2c"
 	"periph.io/x/conn/v3/i2c/i2creg"
 	"periph.io/x/host/v3"
+
+	"github.com/EraldCaka/PIoneer/pkg/config"
 )
 
 type executor interface {
@@ -32,6 +35,8 @@ type executor interface {
 	i2cRead(bus int, address string, length int) ([]byte, error)
 	i2cWriteRegister(bus int, address string, register byte, data []byte) error
 	i2cReadRegister(bus int, address string, register byte, length int) ([]byte, error)
+
+	systemMetrics() (config.SystemMetrics, error)
 }
 
 type sshExecutor struct {
@@ -177,6 +182,26 @@ func (e *sshExecutor) i2cReadRegister(bus int, address string, register byte, le
 		return nil, err
 	}
 	return parseI2CTransferOutput(out, length)
+}
+
+func (e *sshExecutor) systemMetrics() (config.SystemMetrics, error) {
+	var m config.SystemMetrics
+
+	if out, err := e.pool.Run("grep '^cpu ' /proc/stat"); err == nil {
+		m.CPU = parseProcStatCPU(out)
+	}
+	if out, err := e.pool.Run("grep -E '^Mem(Total|Available):' /proc/meminfo"); err == nil {
+		m.Memory = parseProcMemInfo(out)
+	}
+	if out, err := e.pool.Run("cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null || echo 0"); err == nil {
+		var raw int
+		fmt.Sscanf(strings.TrimSpace(out), "%d", &raw)
+		m.Temp = float64(raw) / 1000.0
+	}
+	if out, err := e.pool.Run("cat /proc/uptime"); err == nil {
+		m.Uptime = formatUptime(out)
+	}
+	return m, nil
 }
 
 type localExecutor struct {
@@ -367,6 +392,31 @@ func (e *localExecutor) i2cReadRegister(bus int, address string, register byte, 
 	return result, dev.Tx([]byte{register}, result)
 }
 
+func (e *localExecutor) systemMetrics() (config.SystemMetrics, error) {
+	var m config.SystemMetrics
+
+	if data, err := os.ReadFile("/proc/stat"); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(line, "cpu ") {
+				m.CPU = parseProcStatCPU(line)
+				break
+			}
+		}
+	}
+	if data, err := os.ReadFile("/proc/meminfo"); err == nil {
+		m.Memory = parseProcMemInfo(string(data))
+	}
+	if data, err := os.ReadFile("/sys/class/thermal/thermal_zone0/temp"); err == nil {
+		var raw int
+		fmt.Sscanf(strings.TrimSpace(string(data)), "%d", &raw)
+		m.Temp = float64(raw) / 1000.0
+	}
+	if data, err := os.ReadFile("/proc/uptime"); err == nil {
+		m.Uptime = formatUptime(string(data))
+	}
+	return m, nil
+}
+
 func (e *localExecutor) getOrOpenBus(bus int) (i2c.BusCloser, error) {
 	if b, ok := e.i2cBuses[bus]; ok {
 		return b, nil
@@ -433,4 +483,50 @@ func parseI2CTransferOutput(out string, expected int) ([]byte, error) {
 		result = append(result, byte(val))
 	}
 	return result, nil
+}
+
+func parseProcStatCPU(line string) float64 {
+	fields := strings.Fields(strings.TrimSpace(line))
+	if len(fields) < 5 {
+		return 0
+	}
+	var vals [7]int64
+	for i := 1; i < len(fields) && i-1 < 7; i++ {
+		fmt.Sscanf(fields[i], "%d", &vals[i-1])
+	}
+	total := vals[0] + vals[1] + vals[2] + vals[3] + vals[4] + vals[5] + vals[6]
+	if total == 0 {
+		return 0
+	}
+	idle := vals[3] + vals[4]
+	return float64(total-idle) / float64(total) * 100.0
+}
+
+func parseProcMemInfo(data string) float64 {
+	var total, available int64
+	for _, line := range strings.Split(data, "\n") {
+		if strings.HasPrefix(line, "MemTotal:") {
+			fmt.Sscanf(strings.TrimPrefix(line, "MemTotal:"), "%d", &total)
+		} else if strings.HasPrefix(line, "MemAvailable:") {
+			fmt.Sscanf(strings.TrimPrefix(line, "MemAvailable:"), "%d", &available)
+		}
+	}
+	if total == 0 {
+		return 0
+	}
+	return float64(total-available) / float64(total) * 100.0
+}
+
+func formatUptime(data string) string {
+	var secs float64
+	fmt.Sscanf(strings.TrimSpace(data), "%f", &secs)
+	s := int(secs)
+	d, h, m := s/86400, (s%86400)/3600, (s%3600)/60
+	if d > 0 {
+		return fmt.Sprintf("%dd %dh %dm", d, h, m)
+	}
+	if h > 0 {
+		return fmt.Sprintf("%dh %dm", h, m)
+	}
+	return fmt.Sprintf("%dm", m)
 }

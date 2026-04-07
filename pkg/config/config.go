@@ -126,6 +126,8 @@ type Device interface {
 
 	Health() HealthStatus
 	Metrics() DeviceMetrics
+	Info() DeviceInfo
+	SystemMetrics() (SystemMetrics, error)
 }
 
 type PinEvent struct {
@@ -147,6 +149,19 @@ type DeviceMetrics struct {
 	TotalErrors int64
 	SSHPoolSize int
 	Reconnects  int64
+}
+
+type DeviceInfo struct {
+	Name   string
+	Mode   string
+	Status string
+}
+
+type SystemMetrics struct {
+	CPU    float64
+	Memory float64
+	Temp   float64
+	Uptime string
 }
 
 func Load(file *os.File) (*DeviceConfig, error) {
