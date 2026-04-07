@@ -108,6 +108,14 @@ func (e *sshExecutor) i2cProbe(bus int, address string) error {
 }
 
 func (e *sshExecutor) i2cRecover(bus int) error {
+	if bus == 1 {
+		cmd := "sudo pinctrl set 3 op dh && sudo pinctrl set 2 op dh" +
+			" && for i in 1 2 3 4 5 6 7 8 9; do sudo pinctrl set 3 dl && sudo pinctrl set 3 dh; done" +
+			" && sudo pinctrl set 2 dl && sudo pinctrl set 2 dh" +
+			" && sudo pinctrl set 3 a0 && sudo pinctrl set 2 a0"
+		_, err := e.pool.Run(fmt.Sprintf("sh -c '%s'", cmd))
+		return err
+	}
 	_, err := e.pool.Run(fmt.Sprintf("sudo i2cdetect -y %d >/dev/null 2>&1 || true", bus))
 	return err
 }
